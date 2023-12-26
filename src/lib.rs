@@ -34,8 +34,8 @@ async fn handler(body: Vec<u8>) {
     let now = Utc::now();
     let n_days_ago = (now - Duration::days(7)).date_naive();
 
-    if let Ok(user_vec) = get_contributors(&owner, &repo).await {
-        log::info!("user_vec.len(): {:?}", user_vec.len());
+    if let Ok(repo_data) = is_valid_owner_repo_integrated(&owner, &repo).await {
+        log::info!("user_vec.len(): {:?}", repo_data);
     }
 }
 
@@ -88,44 +88,42 @@ async fn get_user_data(login: &str) -> anyhow::Result<(String, String)> {
     }
 }
 
-pub async fn get_contributors(owner: &str, repo: &str) -> Result<Vec<String>, octocrab::Error> {
-    #[derive(Debug, Deserialize, Serialize)]
-    struct GithubUser {
-        login: String,
+pub async fn is_valid_owner_repo_integrated(owner: &str, repo: &str) -> anyhow::Result<String> {
+    #[derive(Deserialize)]
+    struct CommunityProfile {
+        health_percentage: u16,
+        description: Option<String>,
+        readme: Option<String>,
+        updated_at: Option<DateTime<Utc>>,
     }
-    let mut contributors = Vec::new();
+
+    let community_profile_url = format!("/repos/{}/{}/community/profile", owner, repo);
+
+    let mut description = String::new();
+    let mut date = Utc::now().date_naive();
     let octocrab = get_octo(&GithubLogin::Default);
-    'outer: for n in 1..50 {
-        log::info!("contributors loop {}", n);
 
-        let contributors_route =
-            format!("repos/{owner}/{repo}/contributors?per_page=100&page={n}",);
-
-        match octocrab
-            .get::<Vec<GithubUser>, _, ()>(&contributors_route, None::<&()>)
-            .await
-        {
-            Ok(user_vec) => {
-                if user_vec.is_empty() {
-                    break 'outer;
-                }
-                for user in &user_vec {
-                    contributors.push(user.login.clone());
-                    // log::info!("user: {}", user.login);
-                    // upload_airtable(&user.login, "email", "twitter_username", false).await;
-                }
-            }
-
-            Err(_e) => {
-                log::error!("looping stopped: {:?}", _e);
-                break 'outer;
-            }
+    match octocrab
+        .get::<CommunityProfile, _, ()>(&community_profile_url, None::<&()>)
+        .await
+    {
+        Ok(profile) => {
+            description = profile
+                .description
+                .as_ref()
+                .unwrap_or(&String::from(""))
+                .to_string();
+            date = profile
+                .updated_at
+                .as_ref()
+                .unwrap_or(&Utc::now())
+                .date_naive();
         }
+        Err(e) => log::error!("Error parsing Community Profile: {:?}", e),
     }
 
-    Ok(contributors)
+    Ok(format!("{}/{}", description, date))
 }
-
 
 /* query ($org: String!, $repoName: String!, $since: GitTimestamp!, $afterCursor: String) {
   organization(login: $org) {
