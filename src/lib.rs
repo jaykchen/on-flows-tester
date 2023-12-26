@@ -93,10 +93,14 @@ pub async fn is_valid_owner_repo_integrated(owner: &str, repo: &str) -> anyhow::
     struct CommunityProfile {
         health_percentage: u16,
         description: Option<String>,
-        readme: Option<String>,
+        readme: Option<FileDetails>,
         updated_at: Option<DateTime<Utc>>,
     }
-
+    #[derive(Debug, Deserialize, Serialize)]
+    pub struct FileDetails {
+        url: Option<String>,
+        html_url: Option<String>,
+    }
     let community_profile_url = format!("/repos/{}/{}/community/profile", owner, repo);
 
     let mut description = String::new();
