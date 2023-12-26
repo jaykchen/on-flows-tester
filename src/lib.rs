@@ -34,7 +34,11 @@ async fn handler(body: Vec<u8>) {
     let now = Utc::now();
     let n_days_ago = (now - Duration::days(7)).date_naive();
 
-    let _ = get_contributors(&owner, &repo).await;
+  if  let Ok(user_vec) = get_contributors(&owner, &repo).await {
+
+log::info!("user_vec.len(): {:?}", user_vec.len());
+
+  }
 }
 
 pub async fn upload_airtable(login: &str, email: &str, twitter_username: &str, watching: bool) {
@@ -87,7 +91,7 @@ async fn get_user_data(login: &str) -> anyhow::Result<(String, String)> {
 }
 
 pub async fn get_contributors(owner: &str, repo: &str) -> Result<Vec<String>, octocrab::Error> {
-    #[derive(Debug, Deserialize)]
+    #[derive(Debug, Deserialize, Serialize)]
     struct GithubUser {
         login: String,
     }
@@ -96,9 +100,18 @@ pub async fn get_contributors(owner: &str, repo: &str) -> Result<Vec<String>, oc
     'outer: for n in 1..50 {
         log::info!("contributors loop {}", n);
 
+        // let contributors_route = format!(
+        //     "https://api.github.com/repos/{owner}/{repo}/contributors?per_page=100&page={n}"
+        // );
+        // // format!("repos/{owner}/{repo}/contributors?per_page=100&page={n}",);
+        // let mut contributors = Vec::new();
+
+        // match octocrab
+        //     ._get::<Vec<GithubUser>>(&contributors_route, None::<&()>)
+        //     .await
+
         let contributors_route =
             format!("repos/{owner}/{repo}/contributors?per_page=100&page={n}",);
-        let mut contributors = Vec::new();
 
         match octocrab
             .get::<Vec<GithubUser>, _, ()>(&contributors_route, None::<&()>)
@@ -110,7 +123,7 @@ pub async fn get_contributors(owner: &str, repo: &str) -> Result<Vec<String>, oc
                 }
                 for user in &user_vec {
                     contributors.push(user.login.clone());
-                    log::info!("login: {}", user.login);
+                    log::info!("user: {}", user.login);
                     // upload_airtable(&user.login, "email", "twitter_username", false).await;
                 }
             }
