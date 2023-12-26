@@ -105,9 +105,13 @@ pub async fn get_contributors(owner: &str, repo: &str) -> Result<Vec<String>, oc
             .await
         {
             Ok(user_vec) => {
+                if user_vec.is_empty() {
+                    break 'outer;
+                }
                 for user in &user_vec {
                     contributors.push(user.login.clone());
-                    upload_airtable(&user.login, "email", "twitter_username", false).await;
+                    log::info!("login: {}", user.login);
+                    // upload_airtable(&user.login, "email", "twitter_username", false).await;
                 }
             }
 
