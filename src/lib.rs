@@ -14,12 +14,7 @@ use std::{collections::HashSet, env};
 pub async fn on_deploy() {
     let now = Utc::now();
     let now_minute = now.minute() + 1;
-    let cron_time = format!(
-        "{:02} {:02} {:02} * *",
-        now_minute,
-        now.hour(),
-        now.day(),
-    );
+    let cron_time = format!("{:02} {:02} {:02} * *", now_minute, now.hour(), now.day(),);
     schedule_cron_job(cron_time, String::from("cron_job_evoked")).await;
 }
 
@@ -32,6 +27,9 @@ async fn handler(body: Vec<u8>) {
 
     let now = Utc::now();
     let n_days_ago = (now - Duration::days(7)).date_naive();
+    if let Some(readme) = get_readme(&owner, &repo).await {
+        log::info!("readme: {:?}", readme);
+    }
 
     if let Ok(repo_data) = is_valid_owner_repo_integrated(&owner, &repo).await {
         log::info!("user_vec.len(): {:?}", repo_data);
@@ -92,18 +90,22 @@ pub async fn is_valid_owner_repo_integrated(owner: &str, repo: &str) -> anyhow::
     struct CommunityProfile {
         health_percentage: u16,
         description: Option<String>,
-        readme: Option<FileDetails>,
+        files: FileDetails,
         updated_at: Option<DateTime<Utc>>,
     }
     #[derive(Debug, Deserialize, Serialize)]
     pub struct FileDetails {
+        readme: Option<Readme>,
+    }
+    #[derive(Debug, Deserialize, Serialize)]
+    pub struct Readme {
         url: Option<String>,
-        html_url: Option<String>,
     }
     let community_profile_url = format!("repos/{}/{}/community/profile", owner, repo);
 
     let mut description = String::new();
     let mut date = Utc::now().date_naive();
+    let mut has_readme = false;
     let octocrab = get_octo(&GithubLogin::Default);
 
     match octocrab
@@ -121,49 +123,71 @@ pub async fn is_valid_owner_repo_integrated(owner: &str, repo: &str) -> anyhow::
                 .as_ref()
                 .unwrap_or(&Utc::now())
                 .date_naive();
+            has_readme = profile
+                .files
+                .readme
+                .as_ref()
+                .unwrap_or(&Readme { url: None })
+                .url
+                .is_some();
         }
         Err(e) => log::error!("Error parsing Community Profile: {:?}", e),
+    }
+
+    match has_readme {
+        true => {
+            if let Some(text) = get_readme(owner, repo).await {
+                description.push_str(&text);
+            }
+        }
+        false => {
+            log::error!("{} does not have a readme", repo);
+        }
     }
 
     Ok(format!("{}/{}", description, date))
 }
 
-/* query ($org: String!, $repoName: String!, $since: GitTimestamp!, $afterCursor: String) {
-  organization(login: $org) {
-    repository(name: $repoName) {
-      id
-      name
-      url
-      defaultBranchRef {
-        name
-        target {
-          ... on Commit {
-            id
-            history(first: 100, since: $since, after: $afterCursor) {
-              pageInfo {
-                hasNextPage
-                endCursor
-              }
-              edges {
-                node {
-                  author {
-                    user {
-                      login
-                      name
-                    }
-                  }
-                  committer {
-                    user {
-                      login
-                      name
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
+pub async fn get_readme(owner: &str, repo: &str) -> Option<String> {
+    #[derive(Deserialize, Debug)]
+    struct GithubReadme {
+        content: Option<String>,
     }
-  }
-} */
+
+    let readme_url = format!("repos/{owner}/{repo}/readme");
+
+    let octocrab = get_octo(&GithubLogin::Default);
+
+    match octocrab
+        .get::<GithubReadme, _, ()>(&readme_url, None::<&()>)
+        .await
+    {
+        Ok(readme) => {
+            if let Some(c) = readme.content {
+                let cleaned_content = c.replace("\n", "");
+                match base64::decode(&cleaned_content) {
+                    Ok(decoded_content) => match String::from_utf8(decoded_content) {
+                        Ok(out) => {
+                            return Some(format!("Readme: {}", out));
+                        }
+                        Err(e) => {
+                            log::error!("Failed to convert cleaned readme to String: {:?}", e);
+                            return None;
+                        }
+                    },
+                    Err(e) => {
+                        log::error!("Error decoding base64 content: {:?}", e);
+                        None
+                    }
+                }
+            } else {
+                log::error!("Content field in readme is null.");
+                None
+            }
+        }
+        Err(e) => {
+            log::error!("Error parsing Readme: {:?}", e);
+            None
+        }
+    }
+}
