@@ -13,13 +13,12 @@ use std::{collections::HashSet, env};
 #[tokio::main(flavor = "current_thread")]
 pub async fn on_deploy() {
     let now = Utc::now();
-    let now_minute = now.minute() + 2;
+    let now_minute = now.minute() + 1;
     let cron_time = format!(
-        "{:02} {:02} {:02} {:02} *",
+        "{:02} {:02} {:02} * *",
         now_minute,
         now.hour(),
         now.day(),
-        now.month(),
     );
     schedule_cron_job(cron_time, String::from("cron_job_evoked")).await;
 }
@@ -101,7 +100,7 @@ pub async fn is_valid_owner_repo_integrated(owner: &str, repo: &str) -> anyhow::
         url: Option<String>,
         html_url: Option<String>,
     }
-    let community_profile_url = format!("http://api.github.com/repos/{}/{}/community/profile", owner, repo);
+    let community_profile_url = format!("repos/{}/{}/community/profile", owner, repo);
 
     let mut description = String::new();
     let mut date = Utc::now().date_naive();
