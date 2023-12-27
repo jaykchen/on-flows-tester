@@ -101,7 +101,7 @@ pub async fn is_valid_owner_repo_integrated(owner: &str, repo: &str) -> anyhow::
         url: Option<String>,
         html_url: Option<String>,
     }
-    let community_profile_url = format!("https://api.github.com/repos/{}/{}/community/profile", owner, repo);
+    let community_profile_url = format!("http://api.github.com/repos/{}/{}/community/profile", owner, repo);
 
     let mut description = String::new();
     let mut date = Utc::now().date_naive();
