@@ -13,7 +13,7 @@ use std::{collections::HashSet, env};
 #[tokio::main(flavor = "current_thread")]
 pub async fn on_deploy() {
     let now = Utc::now();
-    let now_minute = now.minute() + 1;
+    let now_minute = now.minute() + 2;
     let cron_time = format!(
         "{:02} {:02} {:02} {:02} *",
         now_minute,
