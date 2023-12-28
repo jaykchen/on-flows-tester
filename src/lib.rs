@@ -50,72 +50,66 @@ async fn handler(body: Vec<u8>) {
     let now = Utc::now();
     let n_days_ago = (now - Duration::days(7)).date_naive();
 
-    // if let Some(readme) = get_readme(&owner, &repo).await {
-    //     if let Ok(summary) = chat_inner(
-    //         "Go through the document and extract key information ",
-    //         &format!("Document: {}", readme),
-    //         300,
-    //         "gpt-3.5-turbo-1106",
-    //     ).await {
-    //         log::info!("summary: {:?}", summary);
-    //     }
-    // }
-
-    if let Some(readme) = get_readme(&owner, &repo).await {
-        if let Ok(summary) = chain_of_chat(
-            "Go through the document and extract key information ",
-            &format!("Document: {}", readme),
-            "Step-1",
-            1000,
-            "Create a concise summary based on the key information extracted from the document",
-            300,
-            "Failed to get reply from OpenAI",
-        ).await {
-            log::info!("summary: {:?}", summary);
+    if let Ok(commit) = analyze_commit_integrated().await {
+        {
+            log::info!("summary: {:?}", commit);
         }
     }
+    /*     if let Some(commit) = analyze_commit_integrated(&owner, &repo).await {
+           if let Ok(summary) = chain_of_chat(
+               "Go through the document and extract key information ",
+               &format!("Document: {}", readme),
+               "Step-1",
+               1000,
+               "Create a concise summary based on the key information extracted from the document",
+               300,
+               "Failed to get reply from OpenAI",
+           ).await {
+               log::info!("summary: {:?}", summary);
+           }
+       }
+    */
 }
 
-pub async fn get_readme(owner: &str, repo: &str) -> Option<String> {
-    #[derive(Deserialize, Debug)]
-    struct GithubReadme {
-        content: Option<String>,
-    }
-
-    let readme_url = format!("repos/{owner}/{repo}/readme");
-
+pub async fn analyze_commit_integrated() -> anyhow::Result<String> {
+    // let commit_patch_str = format!("{url}.patch{token_str}");
+    let commit_patch_str = format!("https://github.com/WasmEdge/WasmEdge/commit/c62e0bb3056bea6d26dab0e626de179cf0616243.patch");
     let octocrab = get_octo(&GithubLogin::Default);
+    let user_name = "hydai";
+    let response = octocrab._get(&commit_patch_str, None::<&()>).await?;
+    let text: String = response.text().await?;
 
-    match octocrab
-        .get::<GithubReadme, _, ()>(&readme_url, None::<&()>)
-        .await
-    {
-        Ok(readme) => {
-            if let Some(c) = readme.content {
-                let cleaned_content = c.replace("\n", "");
-                match base64::decode(&cleaned_content) {
-                    Ok(decoded_content) => match String::from_utf8(decoded_content) {
-                        Ok(out) => {
-                            return Some(format!("Readme: {}", out));
-                        }
-                        Err(e) => {
-                            log::error!("Failed to convert cleaned readme to String: {:?}", e);
-                            return None;
-                        }
-                    },
-                    Err(e) => {
-                        log::error!("Error decoding base64 content: {:?}", e);
-                        None
-                    }
-                }
-            } else {
-                log::error!("Content field in readme is null.");
-                None
-            }
+    let sys_prompt_1 = &format!(
+                "Given a commit patch from user {user_name}, analyze its content. Focus on changes that substantively alter code or functionality. A good analysis prioritizes the commit message for clues on intent and refrains from overstating the impact of minor changes. Aim to provide a balanced, fact-based representation that distinguishes between major and minor contributions to the project. Keep your analysis concise."
+            );
+
+    // let stripped_texts = if !is_sparce {
+    //     let stripped_texts = text
+    //         .splitn(2, "diff --git")
+    //         .nth(0)
+    //         .unwrap_or("")
+    //         .to_string();
+
+    //     let stripped_texts = squeeze_fit_remove_quoted(&stripped_texts, 5_000, 1.0);
+    //     squeeze_fit_post_texts(&stripped_texts, 3_000, 0.6)
+    // } else {
+    //     text.chars().take(24_000).collect::<String>()
+    // };
+    let stripped_texts = text;
+    let tag_line = "";
+
+    let usr_prompt_1 = &format!(
+                "Analyze the commit patch: {stripped_texts}, and its description: {tag_line}. Summarize the main changes, but only emphasize modifications that directly affect core functionality. A good summary is fact-based, derived primarily from the commit message, and avoids over-interpretation. It recognizes the difference between minor textual changes and substantial code adjustments. Conclude by evaluating the realistic impact of {user_name}'s contributions in this commit on the project. Limit the response to 110 tokens."
+            );
+
+    match chat_inner(sys_prompt_1, usr_prompt_1, 128, "gpt-3.5-turbo-1106").await {
+        Ok(r) => {
+            let out = format!(" {}", r);
+            Ok(out)
         }
-        Err(e) => {
-            log::error!("Error parsing Readme: {:?}", e);
-            None
+        Err(_e) => {
+            log::error!("Error generating issue summary : {}", _e);
+            Err(anyhow::anyhow!("Error generating issue summary : {}", _e))
         }
     }
 }
@@ -149,13 +143,6 @@ pub async fn chain_of_chat(
         .build()?;
 
     let chat = client.chat().create(request).await?;
-
-    match chat.choices[0].message.clone().content {
-        Some(res) => {
-            log::info!("{:?}", res);
-        }
-        None => return Err(anyhow::anyhow!(error_tag.to_string())),
-    }
 
     messages.push(
         ChatCompletionRequestUserMessageArgs::default()
@@ -212,7 +199,10 @@ pub async fn chat_inner(
     // send_message_to_channel("ik8", "general", format!("{:?}", check)).await;
 
     match chat.choices[0].message.clone().content {
-        Some(res) => {log::info!("{:?}", chat.choices[0].message.clone()); Ok(res)},
+        Some(res) => {
+            log::info!("{:?}", chat.choices[0].message.clone());
+            Ok(res)
+        }
         None => Err(anyhow::anyhow!("Failed to get reply from OpenAI")),
     }
 }
