@@ -212,7 +212,7 @@ pub async fn chat_inner(
     // send_message_to_channel("ik8", "general", format!("{:?}", check)).await;
 
     match chat.choices[0].message.clone().content {
-        Some(res) => Ok(res),
+        Some(res) => {log::info!("{:?}", chat.choices[0].message.clone()); Ok(res)},
         None => Err(anyhow::anyhow!("Failed to get reply from OpenAI")),
     }
 }
