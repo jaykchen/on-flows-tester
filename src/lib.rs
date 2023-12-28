@@ -78,7 +78,7 @@ pub async fn analyze_commit_integrated() -> anyhow::Result<String> {
     let user_name = "hydai";
     let response = octocrab._get(&commit_patch_str, None::<&()>).await?;
     let text: String = response.text().await?;
-
+    log::info!("commit: {:?}", &text);
     // let sys_prompt_1 = &format!(
     //             "Given a commit patch from user {user_name}, analyze its content. Focus on changes that substantively alter code or functionality. A good analysis prioritizes the commit message for clues on intent and refrains from overstating the impact of minor changes. Aim to provide a balanced, fact-based representation that distinguishes between major and minor contributions to the project. Keep your analysis concise."
     //         );
@@ -99,7 +99,7 @@ pub async fn analyze_commit_integrated() -> anyhow::Result<String> {
     let tag_line = "";
 
     let sys_prompt_1 =
-        &format!("You're AI bot that specializes in analyzing Github documents and behaviours");
+        &format!("You're an AI bot that specializes in analyzing Github documents and behaviours");
     let usr_prompt_1 = &format!(
                 "Analyze the commit patch: {stripped_texts}, and its description: {tag_line}. List the main changes, only emphasize modifications that directly affect core functionality. Please recognize the difference between minor textual changes and substantial code adjustments."
             );
@@ -108,7 +108,7 @@ pub async fn analyze_commit_integrated() -> anyhow::Result<String> {
                 "Given the main changes you've identified, make a concise summary based on them, only emphasize modifications that directly affect core functionality. A good summary is fact-based, derived primarily from the commit message, and avoids over-interpretation. It recognizes the difference between minor textual changes and substantial code adjustments. Conclude by evaluating the realistic impact of {user_name}'s contributions in this commit on the project. Limit the response to 110 tokens."
             );
 
-    match chain_of_chat(
+    chain_of_chat(
         sys_prompt_1,
         usr_prompt_1,
         "this_chat",
@@ -118,16 +118,6 @@ pub async fn analyze_commit_integrated() -> anyhow::Result<String> {
         "chained_chats",
     )
     .await
-    {
-        Ok(r) => {
-            let out = format!(" {}", r);
-            Ok(out)
-        }
-        Err(_e) => {
-            log::error!("Error generating issue summary : {}", _e);
-            Err(anyhow::anyhow!("Error generating issue summary : {}", _e))
-        }
-    }
 }
 
 pub async fn chain_of_chat(
@@ -176,6 +166,7 @@ pub async fn chain_of_chat(
         .build()?;
 
     let chat = client.chat().create(request).await?;
+    log::error!("Complete Msg: {:?}", chat.choices[0].message.clone());
 
     match chat.choices[0].message.clone().content {
         Some(res) => {
