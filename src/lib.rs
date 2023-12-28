@@ -1,5 +1,13 @@
-use airtable_flows::create_record;
 use anyhow;
+use async_openai::{
+    types::{
+        // ChatCompletionFunctionsArgs, ChatCompletionRequestMessage,
+        ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestUserMessageArgs,
+        // ChatCompletionTool, ChatCompletionToolArgs, ChatCompletionToolType,
+        CreateChatCompletionRequestArgs, FinishReason,
+    },
+    Client,
+};
 use chrono::{DateTime, Datelike, Duration, NaiveDate, Timelike, Utc};
 use derivative::Derivative;
 use dotenv::dotenv;
@@ -18,165 +26,41 @@ pub async fn on_deploy() {
     let cron_time = format!("{:02} {:02} {:02} * *", now_minute, now.hour(), now.day());
     schedule_cron_job(cron_time, String::from("cron_job_evoked")).await;
 }
+// pub async fn chain_of_chat(
+//     sys_prompt_1: &str,
+//     usr_prompt_1: &str,
+//     chat_id: &str,
+//     gen_len_1: u16,
+//     usr_prompt_2: &str,
+//     gen_len_2: u16,
+//     error_tag: &str,
+// ) -> anyhow::Result<String> {
 
 #[schedule_handler]
 async fn handler(body: Vec<u8>) {
     dotenv().ok();
     logger::init();
+    let OPENAI_API_KEY = env::var("OPENAI_API_KEY").unwrap_or("".to_string());
+
     let owner = env::var("owner").unwrap_or("wasmedge".to_string());
     let repo = env::var("repo").unwrap_or("wasmedge".to_string());
 
     let now = Utc::now();
     let n_days_ago = (now - Duration::days(7)).date_naive();
-    match get_commits_in_range(&owner, &repo, Some(String::from("hydai")), 7u16, None).await {
-        Some((size, my_vec, team_vec)) => {
-            log::info!("count: {:?}, my-vec: {:?}, team-vec: {:?}", size, my_vec, team_vec);
-        }
-        None => {
-            log::error!("Failed to get commits in range");
-        }
-    }
-}
 
-pub async fn upload_airtable(login: &str, email: &str, twitter_username: &str, watching: bool) {
-    let airtable_token_name = env::var("airtable_token_name").unwrap_or("github".to_string());
-    let airtable_base_id = env::var("airtable_base_id").unwrap_or("appmhvMGsMRPmuUWJ".to_string());
-    let airtable_table_name = env::var("airtable_table_name").unwrap_or("mention".to_string());
-
-    let data = serde_json::json!({
-        "Name": login,
-        "Email": email,
-        "Twitter": twitter_username,
-        "Watching": watching,
-    });
-    let _ = create_record(
-        &airtable_token_name,
-        &airtable_base_id,
-        &airtable_table_name,
-        data.clone(),
-    );
-}
-
-async fn get_user_data(login: &str) -> anyhow::Result<(String, String)> {
-    #[derive(Serialize, Deserialize, Debug)]
-    struct UserProfile {
-        login: String,
-        company: Option<String>,
-        location: Option<String>,
-        email: Option<String>,
-        twitter_username: Option<String>,
-    }
-
-    let octocrab = get_octo(&GithubLogin::Default);
-    let user_profile_route = format!("users/{}", login);
-
-    match octocrab
-        .get::<UserProfile, _, ()>(&user_profile_route, None::<&()>)
-        .await
-    {
-        Ok(profile) => {
-            let email = profile.email.unwrap_or("no email".to_string());
-            let twitter_username = profile.twitter_username.unwrap_or("no twitter".to_string());
-
-            Ok((email, twitter_username))
-        }
-        Err(e) => {
-            log::error!("Failed to get user info for {}: {:?}", login, e);
-            Err(e.into())
+    if let Some(readme) = get_readme(&owner, &repo).await {
+        if let Ok(summary) = chain_of_chat(
+            "Go through the document and extract key information ",
+            &format!("Document: {}", readme),
+            "Step-1",
+            1000,
+            "Create a concise summary based on the key information extracted from the document",
+            300,
+            "Failed to get reply from OpenAI",
+        ).await {
+            log::info!("summary: {:?}", summary);
         }
     }
-}
-
-pub async fn get_commits_in_range(
-    owner: &str,
-    repo: &str,
-    user_name: Option<String>,
-    range: u16,
-    token: Option<String>,
-) -> Option<(usize, Vec<GitMemory>, Vec<GitMemory>)> {
-    #[derive(Debug, Deserialize, Serialize, Clone)]
-    struct User {
-        login: String,
-    }
-
-    #[derive(Serialize, Deserialize, Debug)]
-    struct GithubCommit {
-        sha: String,
-        html_url: String,
-        author: Option<User>,    // made nullable
-        committer: Option<User>, // made nullable
-        commit: CommitDetails,
-    }
-
-    #[derive(Serialize, Deserialize, Debug)]
-    struct CommitDetails {
-        author: CommitUserDetails,
-        message: String,
-        // committer: CommitUserDetails,
-    }
-
-    #[derive(Serialize, Deserialize, Debug)]
-    struct CommitUserDetails {
-        date: Option<DateTime<Utc>>,
-    }
-    let token_str = match &token {
-        None => String::from(""),
-        Some(t) => format!("&token={}", t.as_str()),
-    };
-    let base_commit_url = format!("repos/{owner}/{repo}/commits?&per_page=100{token_str}");
-    // let base_commit_url =
-    //     format!("https://api.github.com/repos/{owner}/{repo}/commits?&per_page=100{token_str}");
-
-    let mut git_memory_vec = vec![];
-    let mut weekly_git_memory_vec = vec![];
-    let now = Utc::now();
-    let n_days_ago = (now - Duration::days(range as i64)).date_naive();
-    let octocrab = get_octo(&GithubLogin::Default);
-
-    match octocrab
-        .get::<Vec<GithubCommit>, _, ()>(&base_commit_url, None::<&()>)
-        .await
-    {
-        Err(e) => {
-            log::error!("Error parsing commits: {:?}", e);
-        }
-        Ok(commits) => {
-            for commit in commits {
-                if let Some(commit_date) = &commit.commit.author.date {
-                    if commit_date.date_naive() <= n_days_ago {
-                        continue;
-                    }
-                    weekly_git_memory_vec.push(GitMemory {
-                        memory_type: MemoryType::Commit,
-                        name: commit.author.clone().map_or(String::new(), |au| au.login),
-                        tag_line: commit.commit.message.clone(),
-                        source_url: commit.html_url.clone(),
-                        payload: String::from(""),
-                        date: commit_date.date_naive(),
-                    });
-                    if let Some(user_name) = &user_name {
-                        if let Some(author) = &commit.author {
-                            if author.login.as_str() == user_name {
-                                git_memory_vec.push(GitMemory {
-                                    memory_type: MemoryType::Commit,
-                                    name: author.login.clone(),
-                                    tag_line: commit.commit.message.clone(),
-                                    source_url: commit.html_url.clone(),
-                                    payload: String::from(""),
-                                    date: commit_date.date_naive(),
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    if user_name.is_none() {
-        git_memory_vec = weekly_git_memory_vec.clone();
-    }
-    let count = git_memory_vec.len();
-    Some((count, git_memory_vec, weekly_git_memory_vec))
 }
 
 pub async fn get_readme(owner: &str, repo: &str) -> Option<String> {
@@ -223,23 +107,99 @@ pub async fn get_readme(owner: &str, repo: &str) -> Option<String> {
     }
 }
 
-#[derive(Derivative, Serialize, Deserialize, Debug, Clone)]
-pub struct GitMemory {
-    pub memory_type: MemoryType,
-    #[derivative(Default(value = "String::from(\"\")"))]
-    pub name: String,
-    #[derivative(Default(value = "String::from(\"\")"))]
-    pub tag_line: String,
-    #[derivative(Default(value = "String::from(\"\")"))]
-    pub source_url: String,
-    #[derivative(Default(value = "String::from(\"\")"))]
-    pub payload: String,
-    pub date: NaiveDate,
+pub async fn chain_of_chat(
+    sys_prompt_1: &str,
+    usr_prompt_1: &str,
+    chat_id: &str,
+    gen_len_1: u16,
+    usr_prompt_2: &str,
+    gen_len_2: u16,
+    error_tag: &str,
+) -> anyhow::Result<String> {
+    let client = Client::new();
+
+    let mut messages = vec![
+        ChatCompletionRequestSystemMessageArgs::default()
+            .content(sys_prompt_1)
+            .build()
+            .expect("Failed to build system message")
+            .into(),
+        ChatCompletionRequestUserMessageArgs::default()
+            .content(usr_prompt_1)
+            .build()?
+            .into(),
+    ];
+    let request = CreateChatCompletionRequestArgs::default()
+        .max_tokens(gen_len_1)
+        .model("gpt-3.5-turbo-1106")
+        .messages(messages.clone())
+        .build()?;
+
+    let chat = client.chat().create(request).await?;
+
+    match chat.choices[0].message.clone().content {
+        Some(res) => {
+            log::info!("{:?}", res);
+        }
+        None => return Err(anyhow::anyhow!(error_tag.to_string())),
+    }
+
+    messages.push(
+        ChatCompletionRequestUserMessageArgs::default()
+            .content(usr_prompt_2)
+            .build()?
+            .into(),
+    );
+
+    let request = CreateChatCompletionRequestArgs::default()
+        .max_tokens(gen_len_2)
+        .model("gpt-3.5-turbo-1106")
+        .messages(messages)
+        .build()?;
+
+    let chat = client.chat().create(request).await?;
+
+    match chat.choices[0].message.clone().content {
+        Some(res) => {
+            log::info!("{:?}", res);
+            Ok(res)
+        }
+        None => return Err(anyhow::anyhow!(error_tag.to_string())),
+    }
 }
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum MemoryType {
-    Commit,
-    Issue,
-    Discussion,
-    Meta,
-}
+
+/* pub async fn chat_inner(
+    system_prompt: &str,
+    user_input: &str,
+    max_token: u16,
+    model: &str,
+) -> Result<Option<String>, Box<dyn std::error::Error>> {
+    let client = Client::new();
+
+    let messages = vec![
+        ChatCompletionRequestSystemMessageArgs::default()
+            .content(system_prompt)
+            .build()
+            .expect("Failed to build system message")
+            .into(),
+        ChatCompletionRequestUserMessageArgs::default()
+            .content(user_input)
+            .build()?
+            .into(),
+    ];
+    let request = CreateChatCompletionRequestArgs::default()
+        .max_tokens(max_token)
+        .model(model)
+        .messages(messages)
+        .build()?;
+
+    let chat = client.chat().create(request).await?;
+
+    // let check = chat.choices.get(0).clone().unwrap();
+    // send_message_to_channel("ik8", "general", format!("{:?}", check)).await;
+
+    match chat.choices[0].message.clone().content {
+        Some(res) => Some(res),
+        None => None,
+    }
+} */
