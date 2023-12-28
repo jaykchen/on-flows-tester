@@ -50,30 +50,30 @@ async fn handler(body: Vec<u8>) {
     let now = Utc::now();
     let n_days_ago = (now - Duration::days(7)).date_naive();
 
-    if let Some(readme) = get_readme(&owner, &repo).await {
-        if let Ok(summary) = chat_inner(
-            "Go through the document and extract key information ",
-            &format!("Document: {}", readme),
-            300,
-            "gpt-3.5-turbo-1106",
-        ).await {
-            log::info!("summary: {:?}", summary);
-        }
-    }
-
     // if let Some(readme) = get_readme(&owner, &repo).await {
-    //     if let Ok(summary) = chain_of_chat(
+    //     if let Ok(summary) = chat_inner(
     //         "Go through the document and extract key information ",
     //         &format!("Document: {}", readme),
-    //         "Step-1",
-    //         1000,
-    //         "Create a concise summary based on the key information extracted from the document",
     //         300,
-    //         "Failed to get reply from OpenAI",
+    //         "gpt-3.5-turbo-1106",
     //     ).await {
     //         log::info!("summary: {:?}", summary);
     //     }
     // }
+
+    if let Some(readme) = get_readme(&owner, &repo).await {
+        if let Ok(summary) = chain_of_chat(
+            "Go through the document and extract key information ",
+            &format!("Document: {}", readme),
+            "Step-1",
+            1000,
+            "Create a concise summary based on the key information extracted from the document",
+            300,
+            "Failed to get reply from OpenAI",
+        ).await {
+            log::info!("summary: {:?}", summary);
+        }
+    }
 }
 
 pub async fn get_readme(owner: &str, repo: &str) -> Option<String> {
