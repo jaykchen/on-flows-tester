@@ -79,9 +79,9 @@ pub async fn analyze_commit_integrated() -> anyhow::Result<String> {
     let response = octocrab._get(&commit_patch_str, None::<&()>).await?;
     let text: String = response.text().await?;
 
-    let sys_prompt_1 = &format!(
-                "Given a commit patch from user {user_name}, analyze its content. Focus on changes that substantively alter code or functionality. A good analysis prioritizes the commit message for clues on intent and refrains from overstating the impact of minor changes. Aim to provide a balanced, fact-based representation that distinguishes between major and minor contributions to the project. Keep your analysis concise."
-            );
+    // let sys_prompt_1 = &format!(
+    //             "Given a commit patch from user {user_name}, analyze its content. Focus on changes that substantively alter code or functionality. A good analysis prioritizes the commit message for clues on intent and refrains from overstating the impact of minor changes. Aim to provide a balanced, fact-based representation that distinguishes between major and minor contributions to the project. Keep your analysis concise."
+    //         );
 
     // let stripped_texts = if !is_sparce {
     //     let stripped_texts = text
@@ -98,11 +98,27 @@ pub async fn analyze_commit_integrated() -> anyhow::Result<String> {
     let stripped_texts = text;
     let tag_line = "";
 
+    let sys_prompt_1 =
+        &format!("You're AI bot that specializes in analyzing Github documents and behaviours");
     let usr_prompt_1 = &format!(
-                "Analyze the commit patch: {stripped_texts}, and its description: {tag_line}. Summarize the main changes, but only emphasize modifications that directly affect core functionality. A good summary is fact-based, derived primarily from the commit message, and avoids over-interpretation. It recognizes the difference between minor textual changes and substantial code adjustments. Conclude by evaluating the realistic impact of {user_name}'s contributions in this commit on the project. Limit the response to 110 tokens."
+                "Analyze the commit patch: {stripped_texts}, and its description: {tag_line}. List the main changes, only emphasize modifications that directly affect core functionality. Please recognize the difference between minor textual changes and substantial code adjustments."
             );
 
-    match chat_inner(sys_prompt_1, usr_prompt_1, 128, "gpt-3.5-turbo-1106").await {
+    let usr_prompt_2 = &format!(
+                "Given the main changes you've identified, make a concise summary based on them, only emphasize modifications that directly affect core functionality. A good summary is fact-based, derived primarily from the commit message, and avoids over-interpretation. It recognizes the difference between minor textual changes and substantial code adjustments. Conclude by evaluating the realistic impact of {user_name}'s contributions in this commit on the project. Limit the response to 110 tokens."
+            );
+
+    match chain_of_chat(
+        sys_prompt_1,
+        usr_prompt_1,
+        "this_chat",
+        800,
+        usr_prompt_2,
+        128,
+        "chained_chats",
+    )
+    .await
+    {
         Ok(r) => {
             let out = format!(" {}", r);
             Ok(out)
@@ -143,7 +159,9 @@ pub async fn chain_of_chat(
         .build()?;
 
     let chat = client.chat().create(request).await?;
-
+    if let Some(text) = chat.choices[0].message.clone().content {
+        log::info!("Step 1: {:?}", text);
+    }
     messages.push(
         ChatCompletionRequestUserMessageArgs::default()
             .content(usr_prompt_2)
@@ -161,7 +179,7 @@ pub async fn chain_of_chat(
 
     match chat.choices[0].message.clone().content {
         Some(res) => {
-            log::info!("{:?}", res);
+            log::info!("Step 2: {:?}", res);
             Ok(res)
         }
         None => return Err(anyhow::anyhow!(error_tag.to_string())),
