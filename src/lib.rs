@@ -76,8 +76,24 @@ pub async fn analyze_commit_integrated() -> anyhow::Result<String> {
     let commit_patch_str = format!("https://github.com/WasmEdge/WasmEdge/commit/c62e0bb3056bea6d26dab0e626de179cf0616243.patch");
     let octocrab = get_octo(&GithubLogin::Default);
     let user_name = "hydai";
-    let response = octocrab._get(&commit_patch_str, None::<&()>).await?;
-    let text: String = response.text().await?;
+
+    let response = octocrab._get(&commit_patch_str, None::<&()>).await;
+    let text = match response {
+        Ok(r) => r.text().await,
+        Err(e) => {
+            log::info!("Failed to get the commit patch: {}", e);
+            return Err(anyhow::anyhow!("Failed to get the commit patch"));
+        }
+    };
+
+    let text = match text {
+        Ok(txt) => txt,
+        Err(e) => {
+            log::info!("Failed to read the commit patch text: {}", e);
+            return Err(anyhow::anyhow!("Failed to read the commit patch text"));
+        }
+    };
+
     log::info!("commit: {:?}", &text);
     // let sys_prompt_1 = &format!(
     //             "Given a commit patch from user {user_name}, analyze its content. Focus on changes that substantively alter code or functionality. A good analysis prioritizes the commit message for clues on intent and refrains from overstating the impact of minor changes. Aim to provide a balanced, fact-based representation that distinguishes between major and minor contributions to the project. Keep your analysis concise."
