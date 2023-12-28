@@ -28,15 +28,6 @@ pub async fn on_deploy() {
     let cron_time = format!("{:02} {:02} {:02} * *", now_minute, now.hour(), now.day());
     schedule_cron_job(cron_time, String::from("cron_job_evoked")).await;
 }
-// pub async fn chain_of_chat(
-//     sys_prompt_1: &str,
-//     usr_prompt_1: &str,
-//     chat_id: &str,
-//     gen_len_1: u16,
-//     usr_prompt_2: &str,
-//     gen_len_2: u16,
-//     error_tag: &str,
-// ) -> anyhow::Result<String> {
 
 #[schedule_handler]
 async fn handler(body: Vec<u8>) {
@@ -50,11 +41,22 @@ async fn handler(body: Vec<u8>) {
     let now = Utc::now();
     let n_days_ago = (now - Duration::days(7)).date_naive();
 
-    if let Ok(commit) = analyze_commit_integrated().await {
+    if let Some(readme) = get_readme("wasmedge", "wasmedge").await {
+        log::info!("readme: {:?}", readme.clone());
+
+        if let Ok(sum) = chat_inner("you're a language bot", &readme, 300, "gpt-3.5-turbo-1106").await
         {
-            log::info!("summary: {:?}", commit);
+            log::info!("summary: {:?}", sum);
         }
     }
+
+}
+
+    // if let Ok(commit) = analyze_commit_integrated().await {
+    //     {
+    //         log::info!("summary: {:?}", commit);
+    //     }
+    // }
     /*     if let Some(commit) = analyze_commit_integrated(&owner, &repo).await {
            if let Ok(summary) = chain_of_chat(
                "Go through the document and extract key information ",
@@ -69,7 +71,6 @@ async fn handler(body: Vec<u8>) {
            }
        }
     */
-}
 
 pub async fn analyze_commit_integrated() -> anyhow::Result<String> {
     // let commit_patch_str = format!("{url}.patch{token_str}");
@@ -229,5 +230,49 @@ pub async fn chat_inner(
             Ok(res)
         }
         None => Err(anyhow::anyhow!("Failed to get reply from OpenAI")),
+    }
+}
+
+pub async fn get_readme(owner: &str, repo: &str) -> Option<String> {
+    #[derive(Deserialize, Debug)]
+    struct GithubReadme {
+        content: Option<String>,
+    }
+
+    let readme_url = format!("repos/{owner}/{repo}/readme");
+
+    let octocrab = get_octo(&GithubLogin::Default);
+
+    match octocrab
+        .get::<GithubReadme, _, ()>(&readme_url, None::<&()>)
+        .await
+    {
+        Ok(readme) => {
+            if let Some(c) = readme.content {
+                let cleaned_content = c.replace("\n", "");
+                match base64::decode(&cleaned_content) {
+                    Ok(decoded_content) => match String::from_utf8(decoded_content) {
+                        Ok(out) => {
+                            return Some(format!("Readme: {}", out));
+                        }
+                        Err(e) => {
+                            log::error!("Failed to convert cleaned readme to String: {:?}", e);
+                            return None;
+                        }
+                    },
+                    Err(e) => {
+                        log::error!("Error decoding base64 content: {:?}", e);
+                        None
+                    }
+                }
+            } else {
+                log::error!("Content field in readme is null.");
+                None
+            }
+        }
+        Err(e) => {
+            log::error!("Error parsing Readme: {:?}", e);
+            None
+        }
     }
 }
