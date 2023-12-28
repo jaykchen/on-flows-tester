@@ -1,6 +1,7 @@
 use airtable_flows::create_record;
 use anyhow;
 use chrono::{DateTime, Datelike, Duration, NaiveDate, Timelike, Utc};
+use derivative::Derivative;
 use dotenv::dotenv;
 use flowsnet_platform_sdk::logger;
 use github_flows::{get_octo, octocrab, GithubLogin};
@@ -14,7 +15,7 @@ use std::{collections::HashSet, env};
 pub async fn on_deploy() {
     let now = Utc::now();
     let now_minute = now.minute() + 1;
-    let cron_time = format!("{:02} {:02} {:02} * *", now_minute, now.hour(), now.day(),);
+    let cron_time = format!("{:02} {:02} {:02} * *", now_minute, now.hour(), now.day());
     schedule_cron_job(cron_time, String::from("cron_job_evoked")).await;
 }
 
@@ -27,12 +28,13 @@ async fn handler(body: Vec<u8>) {
 
     let now = Utc::now();
     let n_days_ago = (now - Duration::days(7)).date_naive();
-    if let Some(readme) = get_readme(&owner, &repo).await {
-        log::info!("readme: {:?}", readme);
-    }
-
-    if let Ok(repo_data) = is_valid_owner_repo_integrated(&owner, &repo).await {
-        log::info!("user_vec.len(): {:?}", repo_data);
+    match get_commits_in_range(&owner, &repo, Some(String::from("hydai")), 7u16, None).await {
+        Some((size, my_vec, team_vec)) => {
+            log::info!("count: {:?}, my-vec: {:?}, team-vec: {:?}", size, my_vec, team_vec);
+        }
+        None => {
+            log::error!("Failed to get commits in range");
+        }
     }
 }
 
@@ -85,67 +87,96 @@ async fn get_user_data(login: &str) -> anyhow::Result<(String, String)> {
     }
 }
 
-pub async fn is_valid_owner_repo_integrated(owner: &str, repo: &str) -> anyhow::Result<String> {
-    #[derive(Deserialize)]
-    struct CommunityProfile {
-        health_percentage: u16,
-        description: Option<String>,
-        files: FileDetails,
-        updated_at: Option<DateTime<Utc>>,
+pub async fn get_commits_in_range(
+    owner: &str,
+    repo: &str,
+    user_name: Option<String>,
+    range: u16,
+    token: Option<String>,
+) -> Option<(usize, Vec<GitMemory>, Vec<GitMemory>)> {
+    #[derive(Debug, Deserialize, Serialize, Clone)]
+    struct User {
+        login: String,
     }
-    #[derive(Debug, Deserialize, Serialize)]
-    pub struct FileDetails {
-        readme: Option<Readme>,
-    }
-    #[derive(Debug, Deserialize, Serialize)]
-    pub struct Readme {
-        url: Option<String>,
-    }
-    let community_profile_url = format!("repos/{}/{}/community/profile", owner, repo);
 
-    let mut description = String::new();
-    let mut date = Utc::now().date_naive();
-    let mut has_readme = false;
+    #[derive(Serialize, Deserialize, Debug)]
+    struct GithubCommit {
+        sha: String,
+        html_url: String,
+        author: Option<User>,    // made nullable
+        committer: Option<User>, // made nullable
+        commit: CommitDetails,
+    }
+
+    #[derive(Serialize, Deserialize, Debug)]
+    struct CommitDetails {
+        author: CommitUserDetails,
+        message: String,
+        // committer: CommitUserDetails,
+    }
+
+    #[derive(Serialize, Deserialize, Debug)]
+    struct CommitUserDetails {
+        date: Option<DateTime<Utc>>,
+    }
+    let token_str = match &token {
+        None => String::from(""),
+        Some(t) => format!("&token={}", t.as_str()),
+    };
+    let base_commit_url = format!("repos/{owner}/{repo}/commits?&per_page=100{token_str}");
+    // let base_commit_url =
+    //     format!("https://api.github.com/repos/{owner}/{repo}/commits?&per_page=100{token_str}");
+
+    let mut git_memory_vec = vec![];
+    let mut weekly_git_memory_vec = vec![];
+    let now = Utc::now();
+    let n_days_ago = (now - Duration::days(range as i64)).date_naive();
     let octocrab = get_octo(&GithubLogin::Default);
 
     match octocrab
-        .get::<CommunityProfile, _, ()>(&community_profile_url, None::<&()>)
+        .get::<Vec<GithubCommit>, _, ()>(&base_commit_url, None::<&()>)
         .await
     {
-        Ok(profile) => {
-            description = profile
-                .description
-                .as_ref()
-                .unwrap_or(&String::from(""))
-                .to_string();
-            date = profile
-                .updated_at
-                .as_ref()
-                .unwrap_or(&Utc::now())
-                .date_naive();
-            has_readme = profile
-                .files
-                .readme
-                .as_ref()
-                .unwrap_or(&Readme { url: None })
-                .url
-                .is_some();
+        Err(e) => {
+            log::error!("Error parsing commits: {:?}", e);
         }
-        Err(e) => log::error!("Error parsing Community Profile: {:?}", e),
-    }
-
-    match has_readme {
-        true => {
-            if let Some(text) = get_readme(owner, repo).await {
-                description.push_str(&text);
+        Ok(commits) => {
+            for commit in commits {
+                if let Some(commit_date) = &commit.commit.author.date {
+                    if commit_date.date_naive() <= n_days_ago {
+                        continue;
+                    }
+                    weekly_git_memory_vec.push(GitMemory {
+                        memory_type: MemoryType::Commit,
+                        name: commit.author.clone().map_or(String::new(), |au| au.login),
+                        tag_line: commit.commit.message.clone(),
+                        source_url: commit.html_url.clone(),
+                        payload: String::from(""),
+                        date: commit_date.date_naive(),
+                    });
+                    if let Some(user_name) = &user_name {
+                        if let Some(author) = &commit.author {
+                            if author.login.as_str() == user_name {
+                                git_memory_vec.push(GitMemory {
+                                    memory_type: MemoryType::Commit,
+                                    name: author.login.clone(),
+                                    tag_line: commit.commit.message.clone(),
+                                    source_url: commit.html_url.clone(),
+                                    payload: String::from(""),
+                                    date: commit_date.date_naive(),
+                                });
+                            }
+                        }
+                    }
+                }
             }
         }
-        false => {
-            log::error!("{} does not have a readme", repo);
-        }
     }
-
-    Ok(format!("{}/{}", description, date))
+    if user_name.is_none() {
+        git_memory_vec = weekly_git_memory_vec.clone();
+    }
+    let count = git_memory_vec.len();
+    Some((count, git_memory_vec, weekly_git_memory_vec))
 }
 
 pub async fn get_readme(owner: &str, repo: &str) -> Option<String> {
@@ -190,4 +221,25 @@ pub async fn get_readme(owner: &str, repo: &str) -> Option<String> {
             None
         }
     }
+}
+
+#[derive(Derivative, Serialize, Deserialize, Debug, Clone)]
+pub struct GitMemory {
+    pub memory_type: MemoryType,
+    #[derivative(Default(value = "String::from(\"\")"))]
+    pub name: String,
+    #[derivative(Default(value = "String::from(\"\")"))]
+    pub tag_line: String,
+    #[derivative(Default(value = "String::from(\"\")"))]
+    pub source_url: String,
+    #[derivative(Default(value = "String::from(\"\")"))]
+    pub payload: String,
+    pub date: NaiveDate,
+}
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum MemoryType {
+    Commit,
+    Issue,
+    Discussion,
+    Meta,
 }
