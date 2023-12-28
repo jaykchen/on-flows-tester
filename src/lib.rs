@@ -2,9 +2,11 @@ use anyhow;
 use async_openai::{
     types::{
         // ChatCompletionFunctionsArgs, ChatCompletionRequestMessage,
-        ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestUserMessageArgs,
+        ChatCompletionRequestSystemMessageArgs,
+        ChatCompletionRequestUserMessageArgs,
         // ChatCompletionTool, ChatCompletionToolArgs, ChatCompletionToolType,
-        CreateChatCompletionRequestArgs, FinishReason,
+        CreateChatCompletionRequestArgs,
+        FinishReason,
     },
     Client,
 };
@@ -49,18 +51,29 @@ async fn handler(body: Vec<u8>) {
     let n_days_ago = (now - Duration::days(7)).date_naive();
 
     if let Some(readme) = get_readme(&owner, &repo).await {
-        if let Ok(summary) = chain_of_chat(
+        if let Ok(summary) = chat_inner(
             "Go through the document and extract key information ",
             &format!("Document: {}", readme),
-            "Step-1",
-            1000,
-            "Create a concise summary based on the key information extracted from the document",
             300,
-            "Failed to get reply from OpenAI",
+            "gpt-3.5-turbo-1106",
         ).await {
             log::info!("summary: {:?}", summary);
         }
     }
+
+    // if let Some(readme) = get_readme(&owner, &repo).await {
+    //     if let Ok(summary) = chain_of_chat(
+    //         "Go through the document and extract key information ",
+    //         &format!("Document: {}", readme),
+    //         "Step-1",
+    //         1000,
+    //         "Create a concise summary based on the key information extracted from the document",
+    //         300,
+    //         "Failed to get reply from OpenAI",
+    //     ).await {
+    //         log::info!("summary: {:?}", summary);
+    //     }
+    // }
 }
 
 pub async fn get_readme(owner: &str, repo: &str) -> Option<String> {
@@ -168,12 +181,12 @@ pub async fn chain_of_chat(
     }
 }
 
-/* pub async fn chat_inner(
+pub async fn chat_inner(
     system_prompt: &str,
     user_input: &str,
     max_token: u16,
     model: &str,
-) -> Result<Option<String>, Box<dyn std::error::Error>> {
+) -> anyhow::Result<String> {
     let client = Client::new();
 
     let messages = vec![
@@ -199,7 +212,7 @@ pub async fn chain_of_chat(
     // send_message_to_channel("ik8", "general", format!("{:?}", check)).await;
 
     match chat.choices[0].message.clone().content {
-        Some(res) => Some(res),
-        None => None,
+        Some(res) => Ok(res),
+        None => Err(anyhow::anyhow!("Failed to get reply from OpenAI")),
     }
-} */
+}
