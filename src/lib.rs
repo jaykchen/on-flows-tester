@@ -45,11 +45,10 @@ async fn handler(body: Vec<u8>) {
     let now = Utc::now();
     let n_days_ago = (now - Duration::days(7)).date_naive();
 
-    if let Some(readme) = get_readme("wasmedge", "wasmedge").await {
-        log::info!("readme: {:?}", readme.clone());
+    if let Ok(commit) = analyze_commit_integrated().await {
 
         if let Ok(sum) =
-            chat_inner("you're a language bot", &readme, 300, "gpt-3.5-turbo-1106").await
+            chat_inner("you're a language bot", &commit, 300, "gpt-3.5-turbo-1106").await
         {
             log::info!("summary: {:?}", sum);
         }
