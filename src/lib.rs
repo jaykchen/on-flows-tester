@@ -14,7 +14,11 @@ use chrono::{DateTime, Datelike, Duration, NaiveDate, Timelike, Utc};
 use derivative::Derivative;
 use dotenv::dotenv;
 use flowsnet_platform_sdk::logger;
-use github_flows::{get_octo, octocrab, GithubLogin};
+use github_flows::{
+    get_octo,
+    octocrab::{self, Page},
+    GithubLogin,
+};
 use schedule_flows::{schedule_cron_job, schedule_handler};
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -44,58 +48,67 @@ async fn handler(body: Vec<u8>) {
     if let Some(readme) = get_readme("wasmedge", "wasmedge").await {
         log::info!("readme: {:?}", readme.clone());
 
-        if let Ok(sum) = chat_inner("you're a language bot", &readme, 300, "gpt-3.5-turbo-1106").await
+        if let Ok(sum) =
+            chat_inner("you're a language bot", &readme, 300, "gpt-3.5-turbo-1106").await
         {
             log::info!("summary: {:?}", sum);
         }
     }
-
 }
 
-    // if let Ok(commit) = analyze_commit_integrated().await {
-    //     {
-    //         log::info!("summary: {:?}", commit);
-    //     }
-    // }
-    /*     if let Some(commit) = analyze_commit_integrated(&owner, &repo).await {
-           if let Ok(summary) = chain_of_chat(
-               "Go through the document and extract key information ",
-               &format!("Document: {}", readme),
-               "Step-1",
-               1000,
-               "Create a concise summary based on the key information extracted from the document",
-               300,
-               "Failed to get reply from OpenAI",
-           ).await {
-               log::info!("summary: {:?}", summary);
-           }
+// if let Ok(commit) = analyze_commit_integrated().await {
+//     {
+//         log::info!("summary: {:?}", commit);
+//     }
+// }
+/*     if let Some(commit) = analyze_commit_integrated(&owner, &repo).await {
+       if let Ok(summary) = chain_of_chat(
+           "Go through the document and extract key information ",
+           &format!("Document: {}", readme),
+           "Step-1",
+           1000,
+           "Create a concise summary based on the key information extracted from the document",
+           300,
+           "Failed to get reply from OpenAI",
+       ).await {
+           log::info!("summary: {:?}", summary);
        }
-    */
+   }
+*/
 
 pub async fn analyze_commit_integrated() -> anyhow::Result<String> {
     // let commit_patch_str = format!("{url}.patch{token_str}");
-    let commit_patch_str = format!("https://github.com/WasmEdge/WasmEdge/commit/c62e0bb3056bea6d26dab0e626de179cf0616243.patch");
+    let commit_patch_str = "https://github.com/WasmEdge/WasmEdge/commit/c62e0bb3056bea6d26dab0e626de179cf0616243.patch";
     let octocrab = get_octo(&GithubLogin::Default);
     let user_name = "hydai";
 
-    let response = octocrab._get(&commit_patch_str, None::<&()>).await;
-    let text = match response {
-        Ok(r) => r.text().await,
-        Err(e) => {
-            log::info!("Failed to get the commit patch: {}", e);
-            return Err(anyhow::anyhow!("Failed to get the commit patch"));
+    let url = reqwest::Url::try_from(commit_patch_str).expect("error parsing commit patch url");
+    let text = match octocrab.get_page(&Some(url)).await {
+        Ok(Some(page)) => {
+            log::info!("text from Response: {:?}", page.clone().items[0]);
+            page.items[0]
+        }
+        Ok(None) => {
+            log::error!("error parse response");
+            return Err(anyhow::anyhow!("error parsing response"));
+        }
+        Err(_e) => {
+            log::error!("error parse response: {:?}", _e);
+            return Err(anyhow::anyhow!("error parsing response"));
         }
     };
+    // let text = match response {
+    //     Ok(r) => {
+    //         log::info!("text parsed from Response: {:?}", r);
+    //         r
+    //     }
+    //     Err(e) => {
+    //         log::info!("Failed to get the commit patch: {}", e);
+    //         return Err(anyhow::anyhow!("Failed to get the commit patch"));
+    //     }
+    // };
 
-    let text = match text {
-        Ok(txt) => txt,
-        Err(e) => {
-            log::info!("Failed to read the commit patch text: {}", e);
-            return Err(anyhow::anyhow!("Failed to read the commit patch text"));
-        }
-    };
-
-    log::info!("commit: {:?}", &text);
+    // log::info!("commit: {:?}", &response.items[0]);
     // let sys_prompt_1 = &format!(
     //             "Given a commit patch from user {user_name}, analyze its content. Focus on changes that substantively alter code or functionality. A good analysis prioritizes the commit message for clues on intent and refrains from overstating the impact of minor changes. Aim to provide a balanced, fact-based representation that distinguishes between major and minor contributions to the project. Keep your analysis concise."
     //         );
@@ -118,7 +131,7 @@ pub async fn analyze_commit_integrated() -> anyhow::Result<String> {
     let sys_prompt_1 =
         &format!("You're an AI bot that specializes in analyzing Github documents and behaviours");
     let usr_prompt_1 = &format!(
-                "Analyze the commit patch: {stripped_texts}, and its description: {tag_line}. List the main changes, only emphasize modifications that directly affect core functionality. Please recognize the difference between minor textual changes and substantial code adjustments."
+                "Analyze the commit patch: {stripped_texts:?}, and its description: {tag_line}. List the main changes, only emphasize modifications that directly affect core functionality. Please recognize the difference between minor textual changes and substantial code adjustments."
             );
 
     let usr_prompt_2 = &format!(

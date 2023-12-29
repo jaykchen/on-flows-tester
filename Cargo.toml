@@ -23,3 +23,5 @@ octocrab_wasi = { version = "0.19.1", features = ["wasi"], default-features = fa
 base64 = "0.21.5"
 derivative = "2.2.0"
 async-openai-wasi = "0.16.4"
+hyper = "1.1.0"
+reqwest_wasi = "0.11.16"
