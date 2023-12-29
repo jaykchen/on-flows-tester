@@ -79,25 +79,22 @@ async fn handler(body: Vec<u8>) {
 pub async fn analyze_commit_integrated() -> anyhow::Result<String> {
     // let commit_patch_str = format!("{url}.patch{token_str}");
     let commit_patch_str = "https://github.com/WasmEdge/WasmEdge/commit/c62e0bb3056bea6d26dab0e626de179cf0616243.patch";
-    let octocrab = get_octo(&GithubLogin::Default);
+    // let octocrab = get_octo(&GithubLogin::Default);
     let user_name = "hydai";
 
-    let url = reqwest::Url::try_from(commit_patch_str).expect("error parsing commit patch url");
-    let text = match octocrab.get_page(&Some(url)).await {
-        Ok(Some(page)) => {
-            log::info!("text from Response: {:?}", page.clone().items[0]);
-            page.items[0]
-        }
-        Ok(None) => {
-            log::error!("error parse response");
-            return Err(anyhow::anyhow!("error parsing response"));
-        }
-        Err(_e) => {
-            log::error!("error parse response: {:?}", _e);
-            return Err(anyhow::anyhow!("error parsing response"));
-        }
-    };
-    // let text = match response {
+    let client = reqwest::Client::new();
+    let response = client
+        .get(commit_patch_str)
+        .send()
+        .await?;
+
+    let text = response
+        .text()
+        .await?;
+    
+    log::info!("text: {:?}", text.clone());
+
+        // let text = match response {
     //     Ok(r) => {
     //         log::info!("text parsed from Response: {:?}", r);
     //         r
