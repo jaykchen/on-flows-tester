@@ -28,7 +28,7 @@ use std::{collections::HashSet, env};
 #[tokio::main(flavor = "current_thread")]
 pub async fn on_deploy() {
     let now = Utc::now();
-    let now_minute = now.minute() + 1;
+    let now_minute = now.minute() + 2;
     let cron_time = format!("{:02} {:02} {:02} * *", now_minute, now.hour(), now.day());
     schedule_cron_job(cron_time, String::from("cron_job_evoked")).await;
 }
@@ -81,10 +81,12 @@ pub async fn analyze_commit_integrated() -> anyhow::Result<String> {
     // let octocrab = get_octo(&GithubLogin::Default);
     let user_name = "hydai";
 
-    let client = reqwest::Client::new();
-    let response = client.get(commit_patch_str).send().await;
+    let octocrab = get_octo(&GithubLogin::Default);
+
+    let response = octocrab._get(commit_patch_str, None::<&()>).await;
 
     let mut text = String::new();
+    
     match response {
         Ok(resp) => {
             if resp.status().is_success() {
