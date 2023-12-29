@@ -83,18 +83,32 @@ pub async fn analyze_commit_integrated() -> anyhow::Result<String> {
     let user_name = "hydai";
 
     let client = reqwest::Client::new();
-    let response = client
-        .get(commit_patch_str)
-        .send()
-        .await?;
+    let response = client.get(commit_patch_str).send().await;
 
-    let text = response
-        .text()
-        .await?;
-    
-    log::info!("text: {:?}", text.clone());
+    let mut text = String::new();
+    match response {
+        Ok(resp) => {
+            if resp.status().is_success() {
+                match resp.text().await {
+                    Ok(t) => {
+                        log::info!("Successfully fetched the commit patch: {}.", t.clone());
+                        text = t;
+                    }
+                    Err(e) => {
+                        log::error!("Failed to read response text: {}", e);
+                    }
+                }
+            } else {
+                log::error!("Request failed with status: {}", resp.status());
+            }
+        }
+        Err(e) => {
+            log::error!("Request failed: {}", e);
+        }
+    }
 
-        // let text = match response {
+
+    // let text = match response {
     //     Ok(r) => {
     //         log::info!("text parsed from Response: {:?}", r);
     //         r
