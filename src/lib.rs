@@ -46,7 +46,6 @@ async fn handler(body: Vec<u8>) {
     let n_days_ago = (now - Duration::days(7)).date_naive();
 
     if let Ok(commit) = analyze_commit_integrated().await {
-
         if let Ok(sum) =
             chat_inner("you're a language bot", &commit, 300, "gpt-3.5-turbo-1106").await
         {
@@ -83,42 +82,42 @@ pub async fn analyze_commit_integrated() -> anyhow::Result<String> {
 
     let octocrab = get_octo(&GithubLogin::Default);
 
-    let response = octocrab._get(commit_patch_str, None::<&()>).await;
 
-    let mut text = String::new();
-    
-    match response {
-        Ok(resp) => {
-            if resp.status().is_success() {
-                match resp.text().await {
-                    Ok(t) => {
-                        log::info!("Successfully fetched the commit patch: {}.", t.clone());
-                        text = t;
-                    }
-                    Err(e) => {
-                        log::error!("Failed to read response text: {}", e);
-                    }
-                }
-            } else {
-                log::error!("Request failed with status: {}", resp.status());
-            }
-        }
-        Err(e) => {
-            log::error!("Request failed: {}", e);
-        }
-    }
+    use http::header::{HeaderMap, HeaderValue, CONNECTION};
+
+    let mut headers = HeaderMap::new();
+    headers.insert(CONNECTION, HeaderValue::from_static("close"));
+
+    let route = format!("http://10.0.0.174/headers");
+    let response = octocrab._get_with_headers(route, None::<&()>, Some(headers)).await?;
+  
+    let bytes = response.bytes().await?;
+    let text = String::from_utf8(bytes.to_vec())?;
+    // let bytes = hyper::body::to_bytes(response.into_body()).await?;
+    // let text: String = String::from_utf8(bytes.to_vec())?;
 
 
-    // let text = match response {
-    //     Ok(r) => {
-    //         log::info!("text parsed from Response: {:?}", r);
-    //         r
+    // let response = octocrab._get(commit_patch_str, None::<&()>).await?;
+
+    // let mut text = String::new();
+
+    // if response.status().is_success() {
+    //     match response.text().await {
+    //         Ok(t) => {
+    //             log::info!("Successfully fetched the commit patch: {}.", t.clone());
+    //             text = t;
+    //         }
+    //         Err(e) => {
+    //             log::error!("Failed to get commit patch : {}", e);
+    //         }
     //     }
-    //     Err(e) => {
-    //         log::info!("Failed to get the commit patch: {}", e);
-    //         return Err(anyhow::anyhow!("Failed to get the commit patch"));
-    //     }
-    // };
+    // } else {
+    //     log::error!(
+    //         "Request getting commit patch failed with status: {}",
+    //         response.status()
+    //     );
+    // }
+
 
     // log::info!("commit: {:?}", &response.items[0]);
     // let sys_prompt_1 = &format!(
