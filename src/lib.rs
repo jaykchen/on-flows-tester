@@ -87,9 +87,9 @@ pub async fn analyze_commit_integrated() -> anyhow::Result<String> {
     let mut headers = HeaderMap::new();
     headers.insert(CONNECTION, HeaderValue::from_static("close"));
 
-    let route = format!("http://10.0.0.174/headers");
+    // let route = format!("http://10.0.0.174/headers");
     let response = match octocrab
-        ._get_with_headers(route, None::<&()>, Some(headers))
+        ._get_with_headers(commit_patch_str, None::<&()>, Some(headers))
         .await
     {
         Ok(resp) => resp,
