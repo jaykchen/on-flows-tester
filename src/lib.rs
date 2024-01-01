@@ -82,20 +82,22 @@ pub async fn analyze_commit_integrated() -> anyhow::Result<String> {
 
     let octocrab = get_octo(&GithubLogin::Default);
 
-
     use http::header::{HeaderMap, HeaderValue, CONNECTION};
 
     let mut headers = HeaderMap::new();
     headers.insert(CONNECTION, HeaderValue::from_static("close"));
 
     let route = format!("http://10.0.0.174/headers");
-    let response = octocrab._get_with_headers(route, None::<&()>, Some(headers)).await?;
-  
+    let response = octocrab
+        ._get_with_headers(route, None::<&()>, Some(headers))
+        .await?;
+
     let bytes = response.bytes().await?;
     let text = String::from_utf8(bytes.to_vec())?;
+
+    log::info!("{text:?}");
     // let bytes = hyper::body::to_bytes(response.into_body()).await?;
     // let text: String = String::from_utf8(bytes.to_vec())?;
-
 
     // let response = octocrab._get(commit_patch_str, None::<&()>).await?;
 
@@ -117,7 +119,6 @@ pub async fn analyze_commit_integrated() -> anyhow::Result<String> {
     //         response.status()
     //     );
     // }
-
 
     // log::info!("commit: {:?}", &response.items[0]);
     // let sys_prompt_1 = &format!(
