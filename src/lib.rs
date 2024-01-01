@@ -92,9 +92,25 @@ pub async fn analyze_commit_integrated() -> anyhow::Result<String> {
         ._get_with_headers(route, None::<&()>, Some(headers))
         .await?;
 
-    let bytes = response.bytes().await?;
-    let text = String::from_utf8(bytes.to_vec())?;
-
+    // let bytes = response.bytes().await?;
+    // let text = String::from_utf8(bytes.to_vec())?;
+    let mut text = String::new();
+    match response.bytes().await {
+        Ok(bytes) => {
+            match String::from_utf8(bytes.to_vec()) {
+                Ok(t) => {
+                    log::info!("Response text: {}", t.clone());
+                    text = t;
+                },
+                Err(e) => {
+                    log::error!("Failed to convert response to text: {}", e);
+                }
+            }
+        },
+        Err(e) => {
+            log::error!("Failed to read response bytes: {}", e);
+        }
+    }
     log::info!("{text:?}");
     // let bytes = hyper::body::to_bytes(response.into_body()).await?;
     // let text: String = String::from_utf8(bytes.to_vec())?;
