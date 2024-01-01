@@ -88,23 +88,29 @@ pub async fn analyze_commit_integrated() -> anyhow::Result<String> {
     headers.insert(CONNECTION, HeaderValue::from_static("close"));
 
     let route = format!("http://10.0.0.174/headers");
-    let response = octocrab
+    let response = match octocrab
         ._get_with_headers(route, None::<&()>, Some(headers))
-        .await?;
+        .await
+    {
+        Ok(resp) => resp,
+
+        Err(_e) => {
+            log::error!("_get_with_headers failed: {:?}", _e);
+            return Err(anyhow::anyhow!("_get_with_headers failed"));
+        }
+    };
 
     // let bytes = response.bytes().await?;
     // let text = String::from_utf8(bytes.to_vec())?;
     let mut text = String::new();
     match response.bytes().await {
-        Ok(bytes) => {
-            match String::from_utf8(bytes.to_vec()) {
-                Ok(t) => {
-                    log::info!("Response text: {}", t.clone());
-                    text = t;
-                },
-                Err(e) => {
-                    log::error!("Failed to convert response to text: {}", e);
-                }
+        Ok(bytes) => match String::from_utf8(bytes.to_vec()) {
+            Ok(t) => {
+                log::info!("Response text: {}", t.clone());
+                text = t;
+            }
+            Err(e) => {
+                log::error!("Failed to convert response to text: {}", e);
             }
         },
         Err(e) => {
