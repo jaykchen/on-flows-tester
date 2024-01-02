@@ -45,12 +45,15 @@ async fn handler(body: Vec<u8>) {
     let now = Utc::now();
     let n_days_ago = (now - Duration::days(7)).date_naive();
 
-    if let Ok(commit) = analyze_commit_integrated().await {
-        if let Ok(sum) =
-            chat_inner("you're a language bot", &commit, 300, "gpt-3.5-turbo-1106").await
-        {
-            log::info!("summary: {:?}", sum);
-        }
+    use tokio::time::Instant;
+    let start_time = Instant::now();
+
+    if let Ok((sys, usr)) = get_commit("jaykchen", "what", "https://github.com/jaykchen/github-analyzer-2/commit/61c9f5f6b3b454eff0481746504d7112d441b578.patch", false, false, None).await {
+        let elapsed = start_time.elapsed();
+        log::info!(
+            "Time elapsed in aggregate_commits  is: {} seconds",elapsed.as_secs());
+    
+        log::info!("sys: {:?}, user: {:?}", sys, usr);
     }
 }
 
@@ -74,114 +77,57 @@ async fn handler(body: Vec<u8>) {
    }
 */
 
-pub async fn analyze_commit_integrated() -> anyhow::Result<String> {
-    // let commit_patch_str = format!("{url}.patch{token_str}");
-    let commit_patch_str = "https://github.com/WasmEdge/WasmEdge/commit/c62e0bb3056bea6d26dab0e626de179cf0616243.patch";
-    // let octocrab = get_octo(&GithubLogin::Default);
-    let user_name = "hydai";
+pub async fn get_commit(
+    user_name: &str,
+    tag_line: &str,
+    url: &str,
+    _turbo: bool,
+    is_sparce: bool,
+    token: Option<String>,
+) -> anyhow::Result<(String, String)> {
+    use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE, USER_AGENT};
 
-    let octocrab = get_octo(&GithubLogin::Default);
-
-    use http::header::{HeaderMap, HeaderValue, CONNECTION};
-
-    let mut headers = HeaderMap::new();
-    headers.insert(CONNECTION, HeaderValue::from_static("close"));
-
-    // let route = format!("http://10.0.0.174/headers");
-    let response = match octocrab
-        ._get_with_headers(commit_patch_str, None::<&()>, Some(headers))
-        .await
-    {
-        Ok(resp) => resp,
-
-        Err(_e) => {
-            log::error!("_get_with_headers failed: {:?}", _e);
-            return Err(anyhow::anyhow!("_get_with_headers failed"));
-        }
+    let token_str = match token {
+        None => String::new(),
+        Some(ref t) => format!("&token={}", t.as_str()),
     };
 
-    // let bytes = response.bytes().await?;
-    // let text = String::from_utf8(bytes.to_vec())?;
-    let mut text = String::new();
-    match response.bytes().await {
-        Ok(bytes) => match String::from_utf8(bytes.to_vec()) {
-            Ok(t) => {
-                log::info!("Response text: {}", t.clone());
-                text = t;
-            }
-            Err(e) => {
-                log::error!("Failed to convert response to text: {}", e);
-            }
-        },
-        Err(e) => {
-            log::error!("Failed to read response bytes: {}", e);
-        }
+    // let commit_patch_str = format!("{url}.patch{token_str}");
+
+    let github_token = std::env::var("GITHUB_TOKEN").unwrap();
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        USER_AGENT,
+        HeaderValue::from_static("flows-network connector"),
+    );
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static("plain/text"));
+    headers.insert(
+        AUTHORIZATION,
+        HeaderValue::from_str(&format!("Bearer {}", github_token))?,
+    );
+
+    let client = reqwest::Client::new();
+    let response = client.get(url).headers(headers).send().await?;
+
+    if !response.status().is_success() {
+        log::error!("GitHub HTTP error: {}", response.status());
+        return Err(anyhow::anyhow!("GitHub HTTP error: {}", response.status()));
     }
-    log::info!("{text:?}");
-    // let bytes = hyper::body::to_bytes(response.into_body()).await?;
-    // let text: String = String::from_utf8(bytes.to_vec())?;
 
-    // let response = octocrab._get(commit_patch_str, None::<&()>).await?;
+    let text = response.text().await?;
 
-    // let mut text = String::new();
+    let sys_prompt_1 = &format!(
+        "Given a commit patch from user {user_name}, analyze its content. Focus on changes that substantively alter code or functionality. A good analysis prioritizes the commit message for clues on intent and refrains from overstating the impact of minor changes. Aim to provide a balanced, fact-based representation that distinguishes between major and minor contributions to the project. Keep your analysis concise."
+    );
 
-    // if response.status().is_success() {
-    //     match response.text().await {
-    //         Ok(t) => {
-    //             log::info!("Successfully fetched the commit patch: {}.", t.clone());
-    //             text = t;
-    //         }
-    //         Err(e) => {
-    //             log::error!("Failed to get commit patch : {}", e);
-    //         }
-    //     }
-    // } else {
-    //     log::error!(
-    //         "Request getting commit patch failed with status: {}",
-    //         response.status()
-    //     );
-    // }
-
-    // log::info!("commit: {:?}", &response.items[0]);
-    // let sys_prompt_1 = &format!(
-    //             "Given a commit patch from user {user_name}, analyze its content. Focus on changes that substantively alter code or functionality. A good analysis prioritizes the commit message for clues on intent and refrains from overstating the impact of minor changes. Aim to provide a balanced, fact-based representation that distinguishes between major and minor contributions to the project. Keep your analysis concise."
-    //         );
-
-    // let stripped_texts = if !is_sparce {
-    //     let stripped_texts = text
-    //         .splitn(2, "diff --git")
-    //         .nth(0)
-    //         .unwrap_or("")
-    //         .to_string();
-
-    //     let stripped_texts = squeeze_fit_remove_quoted(&stripped_texts, 5_000, 1.0);
-    //     squeeze_fit_post_texts(&stripped_texts, 3_000, 0.6)
-    // } else {
-    //     text.chars().take(24_000).collect::<String>()
-    // };
     let stripped_texts = text;
-    let tag_line = "";
 
-    let sys_prompt_1 =
-        &format!("You're an AI bot that specializes in analyzing Github documents and behaviours");
     let usr_prompt_1 = &format!(
-                "Analyze the commit patch: {stripped_texts:?}, and its description: {tag_line}. List the main changes, only emphasize modifications that directly affect core functionality. Please recognize the difference between minor textual changes and substantial code adjustments."
-            );
+        "Analyze the commit patch: {stripped_texts}, and its description: {tag_line}. Summarize the main changes, but only emphasize modifications that directly affect core functionality. A good summary is fact-based, derived primarily from the commit message, and avoids over-interpretation. It recognizes the difference between minor textual changes and substantial code adjustments. Conclude by evaluating the realistic impact of {user_name}'s contributions in this commit on the project. Limit the response to 110 tokens."
+    );
 
-    let usr_prompt_2 = &format!(
-                "Given the main changes you've identified, make a concise summary based on them, only emphasize modifications that directly affect core functionality. A good summary is fact-based, derived primarily from the commit message, and avoids over-interpretation. It recognizes the difference between minor textual changes and substantial code adjustments. Conclude by evaluating the realistic impact of {user_name}'s contributions in this commit on the project. Limit the response to 110 tokens."
-            );
-
-    chain_of_chat(
-        sys_prompt_1,
-        usr_prompt_1,
-        "this_chat",
-        800,
-        usr_prompt_2,
-        128,
-        "chained_chats",
-    )
-    .await
+    return Ok((sys_prompt_1.to_string(), usr_prompt_1.to_string()));
 }
 
 pub async fn chain_of_chat(
@@ -280,46 +226,4 @@ pub async fn chat_inner(
     }
 }
 
-pub async fn get_readme(owner: &str, repo: &str) -> Option<String> {
-    #[derive(Deserialize, Debug)]
-    struct GithubReadme {
-        content: Option<String>,
-    }
 
-    let readme_url = format!("repos/{owner}/{repo}/readme");
-
-    let octocrab = get_octo(&GithubLogin::Default);
-
-    match octocrab
-        .get::<GithubReadme, _, ()>(&readme_url, None::<&()>)
-        .await
-    {
-        Ok(readme) => {
-            if let Some(c) = readme.content {
-                let cleaned_content = c.replace("\n", "");
-                match base64::decode(&cleaned_content) {
-                    Ok(decoded_content) => match String::from_utf8(decoded_content) {
-                        Ok(out) => {
-                            return Some(format!("Readme: {}", out));
-                        }
-                        Err(e) => {
-                            log::error!("Failed to convert cleaned readme to String: {:?}", e);
-                            return None;
-                        }
-                    },
-                    Err(e) => {
-                        log::error!("Error decoding base64 content: {:?}", e);
-                        None
-                    }
-                }
-            } else {
-                log::error!("Content field in readme is null.");
-                None
-            }
-        }
-        Err(e) => {
-            log::error!("Error parsing Readme: {:?}", e);
-            None
-        }
-    }
-}
