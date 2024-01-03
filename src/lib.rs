@@ -23,6 +23,8 @@ use schedule_flows::{schedule_cron_job, schedule_handler};
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::{collections::HashSet, env};
+use web_scraper_flows::get_page_text;
+
 
 #[no_mangle]
 #[tokio::main(flavor = "current_thread")]
@@ -117,6 +119,9 @@ pub async fn get_commit(
 
     let text = response.text().await?;
 
+let text = get_page_text(url).await;
+log::info!("from scraper: {:?}", text.clone());
+
     let sys_prompt_1 = &format!(
         "Given a commit patch from user {user_name}, analyze its content. Focus on changes that substantively alter code or functionality. A good analysis prioritizes the commit message for clues on intent and refrains from overstating the impact of minor changes. Aim to provide a balanced, fact-based representation that distinguishes between major and minor contributions to the project. Keep your analysis concise."
     );
@@ -124,7 +129,7 @@ pub async fn get_commit(
     let stripped_texts = text;
 
     let usr_prompt_1 = &format!(
-        "Analyze the commit patch: {stripped_texts}, and its description: {tag_line}. Summarize the main changes, but only emphasize modifications that directly affect core functionality. A good summary is fact-based, derived primarily from the commit message, and avoids over-interpretation. It recognizes the difference between minor textual changes and substantial code adjustments. Conclude by evaluating the realistic impact of {user_name}'s contributions in this commit on the project. Limit the response to 110 tokens."
+        "Analyze the commit patch: {stripped_texts:?}, and its description: {tag_line}. Summarize the main changes, but only emphasize modifications that directly affect core functionality. A good summary is fact-based, derived primarily from the commit message, and avoids over-interpretation. It recognizes the difference between minor textual changes and substantial code adjustments. Conclude by evaluating the realistic impact of {user_name}'s contributions in this commit on the project. Limit the response to 110 tokens."
     );
 
     return Ok((sys_prompt_1.to_string(), usr_prompt_1.to_string()));
