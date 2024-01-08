@@ -25,7 +25,6 @@ use serde_json;
 use std::{collections::HashSet, env};
 use web_scraper_flows::get_page_text;
 
-
 #[no_mangle]
 #[tokio::main(flavor = "current_thread")]
 pub async fn on_deploy() {
@@ -50,13 +49,7 @@ async fn handler(body: Vec<u8>) {
     use tokio::time::Instant;
     let start_time = Instant::now();
 
-    if let Ok((sys, usr)) = get_commit("jaykchen", "what", "https://github.com/jaykchen/github-analyzer-2/commit/61c9f5f6b3b454eff0481746504d7112d441b578.patch", false, false, None).await {
-        let elapsed = start_time.elapsed();
-        log::info!(
-            "Time elapsed in aggregate_commits  is: {} seconds",elapsed.as_secs());
-    
-        log::info!("sys: {:?}, user: {:?}", sys, usr);
-    }
+    let _ = get_commit().await;
 }
 
 // if let Ok(commit) = analyze_commit_integrated().await {
@@ -79,60 +72,20 @@ async fn handler(body: Vec<u8>) {
    }
 */
 
-pub async fn get_commit(
-    user_name: &str,
-    tag_line: &str,
-    url: &str,
-    _turbo: bool,
-    is_sparce: bool,
-    token: Option<String>,
-) -> anyhow::Result<(String, String)> {
+pub async fn get_commit() -> anyhow::Result<()> {
     use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE, USER_AGENT};
 
-    let token_str = match token {
-        None => String::new(),
-        Some(ref t) => format!("&token={}", t.as_str()),
-    };
-
     // let commit_patch_str = format!("{url}.patch{token_str}");
+    let commit_patch_str = "https://github.com/WasmEdge/WasmEdge/commit/63dab2b96c0daf444a79ad2a2154ca2b010da8b4.patch".to_string();
+    let octocrab = get_octo(&GithubLogin::Default);
 
-    let github_token = std::env::var("GITHUB_TOKEN").unwrap();
+    // let response = github_http_get(&url).await.ok()?;
+    let res = octocrab._get(commit_patch_str, None::<&()>).await?;
 
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        USER_AGENT,
-        HeaderValue::from_static("flows-network connector"),
-    );
-    headers.insert(CONTENT_TYPE, HeaderValue::from_static("plain/text"));
-    headers.insert(
-        AUTHORIZATION,
-        HeaderValue::from_str(&format!("Bearer {}", github_token))?,
-    );
+    let text = res.text().await?;
+    log::info!("Res: {:?}", text.clone());
 
-    let client = reqwest::Client::new();
-    let response = client.get(url).headers(headers).send().await?;
-
-    if !response.status().is_success() {
-        log::error!("GitHub HTTP error: {}", response.status());
-        return Err(anyhow::anyhow!("GitHub HTTP error: {}", response.status()));
-    }
-
-    let text = response.text().await?;
-
-let text = get_page_text(url).await;
-log::info!("from scraper: {:?}", text.clone());
-
-    let sys_prompt_1 = &format!(
-        "Given a commit patch from user {user_name}, analyze its content. Focus on changes that substantively alter code or functionality. A good analysis prioritizes the commit message for clues on intent and refrains from overstating the impact of minor changes. Aim to provide a balanced, fact-based representation that distinguishes between major and minor contributions to the project. Keep your analysis concise."
-    );
-
-    let stripped_texts = text;
-
-    let usr_prompt_1 = &format!(
-        "Analyze the commit patch: {stripped_texts:?}, and its description: {tag_line}. Summarize the main changes, but only emphasize modifications that directly affect core functionality. A good summary is fact-based, derived primarily from the commit message, and avoids over-interpretation. It recognizes the difference between minor textual changes and substantial code adjustments. Conclude by evaluating the realistic impact of {user_name}'s contributions in this commit on the project. Limit the response to 110 tokens."
-    );
-
-    return Ok((sys_prompt_1.to_string(), usr_prompt_1.to_string()));
+    Ok(())
 }
 
 pub async fn chain_of_chat(
@@ -230,5 +183,3 @@ pub async fn chat_inner(
         None => Err(anyhow::anyhow!("Failed to get reply from OpenAI")),
     }
 }
-
-
