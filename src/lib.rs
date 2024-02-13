@@ -1,20 +1,16 @@
 pub mod llm_service;
-use chrono::{Datelike, Timelike, Utc};
+use chrono::{ Datelike, Timelike, Utc };
 use dotenv::dotenv;
 use flowsnet_platform_sdk::logger;
-use github_flows::{get_octo, GithubLogin};
-use octocrab_wasi::{issues, params::issues::Sort, params::Direction};
-use openai_flows::{
-    chat::{ChatModel, ChatOptions},
-    OpenAIFlows,
-};
-use schedule_flows::{schedule_cron_job, schedule_handler};
-use serde_json::{json, to_string_pretty, Value};
-use std::{collections::HashMap, env};
+use github_flows::{ get_octo, GithubLogin };
+use octocrab_wasi::{ issues, params::issues::Sort, params::Direction };
+use openai_flows::{ chat::{ ChatModel, ChatOptions }, OpenAIFlows };
+use schedule_flows::{ schedule_cron_job, schedule_handler };
+use serde_json::{ json, to_string_pretty, Value };
+use std::{ collections::HashMap, env };
 
-use serde::{Deserialize, Serialize};
-use http_req::{request::{Request, Method}, response::Response, uri::Uri};
-
+use serde::{ Deserialize, Serialize };
+use http_req::{ request::{ Request, Method }, response::Response, uri::Uri };
 
 #[no_mangle]
 #[tokio::main(flavor = "current_thread")]
@@ -55,28 +51,29 @@ pub async fn completion_inner_async(user_input: &str) -> anyhow::Result<String> 
     let query = json!({
         "inputs": user_input,
     });
+    let query_bytes = serde_json::to_vec(&query).expect("Failed to serialize query to bytes");
 
-    let query_str = query.to_string();
-    let query_len = query_str.len().to_string();
-
+    // let query_str = query.to_string();
+    let query_len = query_bytes.len().to_string();
     // Prepare and send the HTTP request
-    match Request::new(&base_url)
-        .method(Method::POST)
-        .header("User-Agent", "My Rust Application")
-        .header("Content-Type", "application/json")
-        .header("Authorization", &format!("Bearer {}", llm_api_key))
-        .header("Content-Length", &query_len)
-        .body(&query_str.into_bytes())
-        .send(&mut writer)
+    match
+        Request::new(&base_url)
+            .method(Method::POST)
+            .header("Content-Type", "application/json")
+            .header("Authorization", &format!("Bearer {}", llm_api_key))
+            .header("Content-Length", &query_len)
+            .body(&query_bytes)
+            .send(&mut writer)
     {
         Ok(res) => {
             if !res.status_code().is_success() {
                 log::error!("HTTP error with status {:?}", res.status_code());
                 return Err(anyhow::anyhow!("HTTP error with status {:?}", res.status_code()));
             }
-            
+
             // Attempt to parse the response body into the expected structure
-            let completion_response: Vec<Choice> = serde_json::from_slice(&writer)
+            let completion_response: Vec<Choice> = serde_json
+                ::from_slice(&writer)
                 .expect("Failed to parse response from API");
 
             if let Some(choice) = completion_response.get(0) {
@@ -97,4 +94,3 @@ pub async fn completion_inner_async(user_input: &str) -> anyhow::Result<String> 
 pub struct Choice {
     pub generated_text: String,
 }
-
