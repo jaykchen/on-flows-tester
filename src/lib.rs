@@ -61,6 +61,7 @@ pub async fn completion_inner_async(user_input: &str) -> anyhow::Result<String> 
             .method(Method::POST)
             .header("Content-Type", "application/json")
             .header("Authorization", &format!("Bearer {}", llm_api_key))
+            .header("Content-Length", &query_len)
             .body(&query_bytes)
             .send(&mut writer)
     {
