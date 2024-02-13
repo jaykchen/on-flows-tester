@@ -32,3 +32,4 @@ vector-store-flows = "0.1.2"
 itertools = "0.12.1"
 store-flows = "0.3.1"
 reqwest_wasi = "0.11.16"
+http_req_wasi = {version =  "0.11.1", features = ["wasmedge_rustls"]}
