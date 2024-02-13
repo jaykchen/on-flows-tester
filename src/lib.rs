@@ -29,6 +29,18 @@ async fn handler(body: Vec<u8>) {
     let _ = inner().await;
 }
 async fn inner() -> anyhow::Result<()> {
+    let octocrab = get_octo(&GithubLogin::Default);
+    let report_issue_handle = octocrab.issues("jaykchen", "issue-labeler");
+
+    let report_issue = report_issue_handle
+        .create("hardcoded".to_string())
+        .body("demo")
+        .labels(Some(vec!["hardcoded".to_string()]))
+        .send().await?;
+    let report_issue_number = report_issue.number;
+    let label_slice = vec!["fake".to_string()];
+    let _ = report_issue_handle.update(report_issue_number).labels(&label_slice).send().await?;
+
     let query =
         "<s> Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.\n\n### Instruction:\nYou're a programming bot tasked to analyze GitHub issues data and assign labels to them.\n\n### Input:\nCan you assign labels to the GitHub issue titled `feat: Implement typed function references proposal`, created by `hydai`, stating `This issue pertains to the Typed function references proposal for WebAssembly, aiming to enhance function references for efficient indirect calls and better interoperability. The key goals include enabling direct function calls without runtime checks, representing function pointers without using tables, and facilitating the exchange of function references between modules and the host environment. Additionally, the proposal seeks to support safe closures and separate useful features from the GC proposal.\n\nTo address the requirements, the following tasks need to be completed:\n- Gain familiarity with the Wasm Spec\n- Study the Typed function references Spec\n- Integrate new type definitions and instructions in WasmEdge\n- Implement an option in WasmEdge CLI to enable/disable the proposal\n- Develop unit tests for comprehensive coverage\n\nTo qualify for the LFX mentorship, the applicant should have experience in C++ programming and complete challenge #1221.\n\nReferences:\n- GC Proposal: [WebAssembly GC](https://github.com/WebAssembly/gc)\n- Typed function references Proposal: [Function References](https://github.com/WebAssembly/function-references)`?\n\n### Response:";
 
@@ -48,7 +60,8 @@ pub async fn completion_inner_async(user_input: &str) -> anyhow::Result<String> 
 
     let mut writer = Vec::new(); // This will store the response body
 
-    let query = json!({
+    let query =
+        json!({
         "inputs": user_input,
         "wait_for_model": true,
         "max_new_tokens": 500,
