@@ -1,0 +1,23 @@
+[
+    {
+        "prompt_one": "this is the text info from a github issues webpage, please find out 1) title of the issue 2) who opened the issue, 3) who is the issue assigned to 4) what labels are assigned, here are the texts:"
+    },
+    {
+        "prompt_one": "this is the text info from a github issues webpage, please find out 1) title of the issue 2) who opened the issue, 3) who is the issue assigned to 4) what labels are assigned, create a short explanation of what it means to apply a certain label, one paragraph for one label each, here are the texts:"
+    },
+    {
+        "content": "textContent: Skip to content\n        WasmEdge\n        /\n        WasmEdge\n        Code\n        Issues\n        268\n        Pull requests\n        33\n        Discussions\n        Actions\n        Projects\n        5\n        New issue\n        feat: enable new base image - manylinux_2_28 #3188\n        Open\n        hydai opened this issue  \u00b7 0 comments\n        Comments\n        Member\n        hydai commented \n        Summary\n        \n        CentOS 7 reaches EOL on June 30, 2024.\n        As we announced in #3154, the manylinux_2014 will be deprecated soon.\n        \n        And the manylinux_2_28 will be the successor.\n        \n        Details\n        \n        To enable this, we should:\n        \n        Prepare new docker images based on manylinux_2_28.\n        Append CI workflows with the images created by 1.\n        Appendix\n        manylinux_2_28: https: //github.com/pypa/manylinux?tab=readme-ov-file#manylinux_2_28-almalinux-8-based\n         hydai added the enhancement label \n         hydai assigned 0yi0 \n         hydai added c-Installer c-CI labels \n        Add a comment\n        Comment\n        Write\n        Preview\n        \n        Add your comment here...\n        \n        Markdown is supported\n         \n        Paste, drop, or click to add files\n        Comment\n        Remember, contributions to this repository should follow its security policy and code of conduct.\n        Assignees\n        \n        0yi0\n        \n        Labels\n        c-CI\n        c-Installer\n        enhancement\n        Projects\n        None yet\n        Milestone\n        No milestone\n        Development\n        \n        No branches or pull requests\n        \n        Notifications\n        Customize\n        Subscribe\n        \n        You\u2019re not receiving notifications from this thread.\n        \n        2 participants\n        Footer\n        \u00a9 2024 GitHub, Inc.\n        Footer navigation\n        Terms\n        Privacy\n        Security\n        Status\n        Docs\n        Contact\n        Manage cookies\n        Do not share my personal information\n"
+    },
+    {
+        "system_prompt": "You're a programming bot and you're trying to extract key issue data from the human viewable texts of a GitHub issues page."
+    },
+    {
+        "prompt_one": "this is the text info from a github issues webpage, please find out 1) title of the issue 2) who opened the issue, 3) who is the issue assigned to 4) what labels are assigned, here are the texts:"
+    },
+    {
+        "prompt_one": "this is the text info from a github issues webpage, please find out 1) title of the issue 2) who opened the issue, 3) who is the issue assigned to 4) what labels are assigned, here are the texts:"
+    },
+    {
+        "jq -aRs . <<< ": ""
+    }
+]
