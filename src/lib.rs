@@ -1,16 +1,24 @@
 pub mod llm_service;
-use chrono::{ Datelike, Timelike, Utc };
+use chrono::{Datelike, Timelike, Utc};
 use dotenv::dotenv;
 use flowsnet_platform_sdk::logger;
-use github_flows::{ get_octo, GithubLogin };
-use octocrab_wasi::{ issues, params::issues::Sort, params::Direction };
-use openai_flows::{ chat::{ ChatModel, ChatOptions }, OpenAIFlows };
-use schedule_flows::{ schedule_cron_job, schedule_handler };
-use serde_json::{ json, to_string_pretty, Value };
-use std::{ collections::HashMap, env };
+use github_flows::{get_octo, GithubLogin};
+use octocrab_wasi::{issues, params::issues::Sort, params::Direction};
+use openai_flows::{
+    chat::{ChatModel, ChatOptions},
+    OpenAIFlows,
+};
+use schedule_flows::{schedule_cron_job, schedule_handler};
+use serde_json::{json, to_string_pretty, Value};
+use std::{collections::HashMap, env};
 
-use serde::{ Deserialize, Serialize };
-use http_req::{ request::{ Request, Method }, response::Response, uri::Uri };
+use http_req::{
+    request::{Method, Request},
+    response::Response,
+    uri::Uri,
+};
+use serde::{Deserialize, Serialize};
+use chrono::Duration;
 
 #[no_mangle]
 #[tokio::main(flavor = "current_thread")]
@@ -30,7 +38,9 @@ async fn handler(body: Vec<u8>) {
 }
 async fn search_for_mention() -> anyhow::Result<()> {
     let octocrab = get_octo(&GithubLogin::Default);
-    let one_hour_ago = (Utc::now() - Duration::hour(100i64)).format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let one_hour_ago = (Utc::now() - Duration::hours(100i64))
+        .format("%Y-%m-%dT%H:%M:%SZ")
+        .to_string();
 
     let query = format!("is:issue updated:>{one_hour_ago}");
 
@@ -38,7 +48,9 @@ async fn search_for_mention() -> anyhow::Result<()> {
         .search()
         .issues_and_pull_requests(&query)
         .sort("updated-date")
-        .order("desc").send().await?;
+        .order("desc")
+        .send()
+        .await?;
 
     for issue in issues.items {
         log::error!("issue: {:?}", issue.title);
@@ -54,8 +66,7 @@ pub async fn completion_inner_async(user_input: &str) -> anyhow::Result<String> 
 
     let mut writer = Vec::new(); // This will store the response body
 
-    let query =
-        json!({
+    let query = json!({
         "inputs": user_input,
         "wait_for_model": true,
         "max_new_tokens": 500,
@@ -65,31 +76,34 @@ pub async fn completion_inner_async(user_input: &str) -> anyhow::Result<String> 
     // let query_str = query.to_string();
     let query_len = query_bytes.len().to_string();
     // Prepare and send the HTTP request
-    match
-        Request::new(&base_url)
-            .method(Method::POST)
-            .header("Content-Type", "application/json")
-            .header("Authorization", &format!("Bearer {}", llm_api_key))
-            .header("Content-Length", &query_len)
-            .body(&query_bytes)
-            .send(&mut writer)
+    match Request::new(&base_url)
+        .method(Method::POST)
+        .header("Content-Type", "application/json")
+        .header("Authorization", &format!("Bearer {}", llm_api_key))
+        .header("Content-Length", &query_len)
+        .body(&query_bytes)
+        .send(&mut writer)
     {
         Ok(res) => {
             if !res.status_code().is_success() {
                 log::error!("HTTP error with status {:?}", res.status_code());
-                return Err(anyhow::anyhow!("HTTP error with status {:?}", res.status_code()));
+                return Err(anyhow::anyhow!(
+                    "HTTP error with status {:?}",
+                    res.status_code()
+                ));
             }
 
             // Attempt to parse the response body into the expected structure
-            let completion_response: Vec<Choice> = serde_json
-                ::from_slice(&writer)
-                .expect("Failed to parse response from API");
+            let completion_response: Vec<Choice> =
+                serde_json::from_slice(&writer).expect("Failed to parse response from API");
 
             if let Some(choice) = completion_response.get(0) {
                 log::info!("Choice: {:?}", choice);
                 Ok(choice.generated_text.clone())
             } else {
-                Err(anyhow::anyhow!("No completion choices found in the response"))
+                Err(anyhow::anyhow!(
+                    "No completion choices found in the response"
+                ))
             }
         }
         Err(e) => {
@@ -173,7 +187,9 @@ async fn get_watchers(owner_repo: &str) -> anyhow::Result<HashMap<String, (Strin
             "#,
             owner,
             repo,
-            after_cursor.as_ref().map_or("null".to_string(), |c| format!(r#""{}""#, c))
+            after_cursor
+                .as_ref()
+                .map_or("null".to_string(), |c| format!(r#""{}""#, c))
         );
 
         let response: GraphQLResponse;
@@ -191,17 +207,21 @@ async fn get_watchers(owner_repo: &str) -> anyhow::Result<HashMap<String, (Strin
                 continue;
             }
         }
-        let watchers = response.data
+        let watchers = response
+            .data
             .and_then(|data| data.repository)
             .and_then(|repo| repo.watchers);
 
         if let Some(watchers) = watchers {
             for edge in watchers.edges.unwrap_or_default() {
                 if let Some(node) = edge.node {
-                    watchers_map.insert(node.login, (
-                        node.email.unwrap_or(String::from("")),
-                        node.twitterUsername.unwrap_or(String::from("")),
-                    ));
+                    watchers_map.insert(
+                        node.login,
+                        (
+                            node.email.unwrap_or(String::from("")),
+                            node.twitterUsername.unwrap_or(String::from("")),
+                        ),
+                    );
                 }
             }
 
@@ -221,22 +241,21 @@ async fn get_watchers(owner_repo: &str) -> anyhow::Result<HashMap<String, (Strin
     Ok(watchers_map)
 }
 pub async fn github_http_post_gql(query: &str) -> anyhow::Result<Vec<u8>> {
-    use http_req::{ request::Method, request::Request, uri::Uri };
+    use http_req::{request::Method, request::Request, uri::Uri};
     let token = env::var("GITHUB_TOKEN").expect("github_token is required");
     let base_url = "https://api.github.com/graphql";
     let base_url = Uri::try_from(base_url).unwrap();
     let mut writer = Vec::new();
 
     let query = serde_json::json!({"query": query});
-    match
-        Request::new(&base_url)
-            .method(Method::POST)
-            .header("User-Agent", "flows-network connector")
-            .header("Content-Type", "application/json")
-            .header("Authorization", &format!("Bearer {}", token))
-            .header("Content-Length", &query.to_string().len())
-            .body(&query.to_string().into_bytes())
-            .send(&mut writer)
+    match Request::new(&base_url)
+        .method(Method::POST)
+        .header("User-Agent", "flows-network connector")
+        .header("Content-Type", "application/json")
+        .header("Authorization", &format!("Bearer {}", token))
+        .header("Content-Length", &query.to_string().len())
+        .body(&query.to_string().into_bytes())
+        .send(&mut writer)
     {
         Ok(res) => {
             if !res.status_code().is_success() {
