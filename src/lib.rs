@@ -41,13 +41,17 @@ async fn search_for_mention() -> anyhow::Result<()> {
     let one_hour_ago = (Utc::now() - Duration::hours(100i64))
         .format("%Y-%m-%dT%H:%M:%SZ")
         .to_string();
+    let one_year_ago = (Utc::now() - Duration::weeks(52i64))
+        .format("%Y-%m-%dT%H:%M:%SZ")
+        .to_string();
 
-    let query = format!("is:issue updated:>{one_hour_ago}");
+    let query = format!("is:issue mentions:Hacktoberfest updated:>{one_year_ago}");
+    log::error!("query: {:?}", query.clone());
 
     let issues = octocrab
         .search()
         .issues_and_pull_requests(&query)
-        .sort("updated-date")
+        .sort("comments")
         .order("desc")
         .send()
         .await?;
