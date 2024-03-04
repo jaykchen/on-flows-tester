@@ -26,24 +26,22 @@ async fn handler(body: Vec<u8>) {
     dotenv().ok();
     logger::init();
 
-    let _ = inner().await;
+    let _ = search_for_mention().await;
 }
-async fn inner() -> anyhow::Result<()> {
+async fn search_for_mention() -> anyhow::Result<()> {
     let octocrab = get_octo(&GithubLogin::Default);
-    let report_issue_handle = octocrab.issues("jaykchen", "issue-labeler");
+    let one_hour_ago = (Utc::now() - Duration::hour(100i64)).format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
-    let report_issue = report_issue_handle
-        .create("hardcoded".to_string())
-        .body("demo")
-        .labels(Some(vec!["hardcoded".to_string(), "fake".to_string()]))
-        .send().await?;
-    let query =
-        "<s> Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.\n\n### Instruction:\nYou're a programming bot tasked to analyze GitHub issues data and assign labels to them.\n\n### Input:\nCan you assign labels to the GitHub issue titled `feat: Implement typed function references proposal`, created by `hydai`, stating `This issue pertains to the Typed function references proposal for WebAssembly, aiming to enhance function references for efficient indirect calls and better interoperability. The key goals include enabling direct function calls without runtime checks, representing function pointers without using tables, and facilitating the exchange of function references between modules and the host environment. Additionally, the proposal seeks to support safe closures and separate useful features from the GC proposal.\n\nTo address the requirements, the following tasks need to be completed:\n- Gain familiarity with the Wasm Spec\n- Study the Typed function references Spec\n- Integrate new type definitions and instructions in WasmEdge\n- Implement an option in WasmEdge CLI to enable/disable the proposal\n- Develop unit tests for comprehensive coverage\n\nTo qualify for the LFX mentorship, the applicant should have experience in C++ programming and complete challenge #1221.\n\nReferences:\n- GC Proposal: [WebAssembly GC](https://github.com/WebAssembly/gc)\n- Typed function references Proposal: [Function References](https://github.com/WebAssembly/function-references)`?\n\n### Response:";
+    let query = format!("is:issue updated:>{one_hour_ago}");
 
-    match completion_inner_async(query).await {
-        Ok(res) => log::info!("res: {:?}", res),
+    let issues = octocrab
+        .search()
+        .issues_and_pull_requests(&query)
+        .sort("updated-date")
+        .order("desc").send().await?;
 
-        Err(_e) => log::error!("error: {:?}", _e),
+    for issue in issues.items {
+        log::error!("issue: {:?}", issue.title);
     }
 
     Ok(())
@@ -104,4 +102,152 @@ pub async fn completion_inner_async(user_input: &str) -> anyhow::Result<String> 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Choice {
     pub generated_text: String,
+}
+
+async fn get_watchers(owner_repo: &str) -> anyhow::Result<HashMap<String, (String, String)>> {
+    #[derive(Serialize, Deserialize, Debug)]
+    struct GraphQLResponse {
+        data: Option<RepositoryData>,
+    }
+
+    #[derive(Serialize, Deserialize, Debug)]
+    struct RepositoryData {
+        repository: Option<Repository>,
+    }
+
+    #[derive(Serialize, Deserialize, Debug)]
+    struct Repository {
+        watchers: Option<WatchersConnection>,
+    }
+
+    #[derive(Serialize, Deserialize, Debug)]
+    struct WatcherEdge {
+        node: Option<WatcherNode>,
+    }
+    #[derive(Serialize, Deserialize, Debug)]
+    struct WatcherNode {
+        login: String,
+        email: Option<String>,
+        twitterUsername: Option<String>,
+    }
+
+    #[derive(Serialize, Deserialize, Debug)]
+    struct PageInfo {
+        #[serde(rename = "endCursor")]
+        end_cursor: Option<String>,
+        #[serde(rename = "hasNextPage")]
+        has_next_page: Option<bool>,
+    }
+
+    #[derive(Serialize, Deserialize, Debug)]
+    struct WatchersConnection {
+        edges: Option<Vec<WatcherEdge>>,
+        #[serde(rename = "pageInfo")]
+        page_info: Option<PageInfo>,
+    }
+    let mut watchers_map = HashMap::<String, (String, String)>::new();
+
+    let mut after_cursor = None;
+    let (owner, repo) = owner_repo.split_once("/").unwrap_or_default();
+
+    for _n in 1..499 {
+        let query_str = format!(
+            r#"
+            query {{
+                repository(owner: "{}", name: "{}") {{
+                    watchers(first: 100, after: {}) {{
+                        edges {{
+                            node {{
+                                login
+                                email
+                                twitterUsername
+                            }}
+                        }}
+                        pageInfo {{
+                            endCursor
+                            hasNextPage
+                        }}
+                    }}
+                }}
+            }}
+            "#,
+            owner,
+            repo,
+            after_cursor.as_ref().map_or("null".to_string(), |c| format!(r#""{}""#, c))
+        );
+
+        let response: GraphQLResponse;
+        match github_http_post_gql(&query_str).await {
+            Ok(r) => {
+                response = match serde_json::from_slice::<GraphQLResponse>(&r) {
+                    Ok(res) => res,
+                    Err(err) => {
+                        log::error!("Failed to deserialize response from Github: {}", err);
+                        continue;
+                    }
+                };
+            }
+            Err(_e) => {
+                continue;
+            }
+        }
+        let watchers = response.data
+            .and_then(|data| data.repository)
+            .and_then(|repo| repo.watchers);
+
+        if let Some(watchers) = watchers {
+            for edge in watchers.edges.unwrap_or_default() {
+                if let Some(node) = edge.node {
+                    watchers_map.insert(node.login, (
+                        node.email.unwrap_or(String::from("")),
+                        node.twitterUsername.unwrap_or(String::from("")),
+                    ));
+                }
+            }
+
+            match watchers.page_info {
+                Some(page_info) if page_info.has_next_page.unwrap_or(false) => {
+                    after_cursor = page_info.end_cursor;
+                }
+                _ => {
+                    log::info!("watchers loop {}", _n);
+                    break;
+                }
+            }
+        } else {
+            break;
+        }
+    }
+    Ok(watchers_map)
+}
+pub async fn github_http_post_gql(query: &str) -> anyhow::Result<Vec<u8>> {
+    use http_req::{ request::Method, request::Request, uri::Uri };
+    let token = env::var("GITHUB_TOKEN").expect("github_token is required");
+    let base_url = "https://api.github.com/graphql";
+    let base_url = Uri::try_from(base_url).unwrap();
+    let mut writer = Vec::new();
+
+    let query = serde_json::json!({"query": query});
+    match
+        Request::new(&base_url)
+            .method(Method::POST)
+            .header("User-Agent", "flows-network connector")
+            .header("Content-Type", "application/json")
+            .header("Authorization", &format!("Bearer {}", token))
+            .header("Content-Length", &query.to_string().len())
+            .body(&query.to_string().into_bytes())
+            .send(&mut writer)
+    {
+        Ok(res) => {
+            if !res.status_code().is_success() {
+                log::error!("Github http error {:?}", res.status_code());
+                return Err(anyhow::anyhow!("Github http error {:?}", res.status_code()));
+            }
+            Ok(writer)
+        }
+        Err(_e) => {
+            log::error!("Error getting response from Github: {:?}", _e);
+            Err(anyhow::anyhow!(_e))
+        }
+    }
 }
