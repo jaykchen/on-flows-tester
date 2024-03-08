@@ -26,11 +26,7 @@ async fn inner() -> anyhow::Result<()> {
     let octocrab = get_octo(&GithubLogin::Default);
     let report_issue_handle = octocrab.issues("pytorch", "pytorch");
 
-    let report_issue = report_issue_handle
-        .update(1329)
-        .body("hard coded demo")
-        .send()
-        .await?;
+    let report_issue = report_issue_handle.create_comment(1329, "hard coded comment by flows").await?;
     // let report_issue_number = report_issue.number;
     // let label_slice = vec!["fake".to_string()];
     // let _ = report_issue_handle.update(report_issue_number).labels(&label_slice).send().await?;
